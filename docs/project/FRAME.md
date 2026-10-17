@@ -1,15 +1,15 @@
 # Project Frame: Demerzel
 
 Revisão do Frame: 0.3, 2026-10-17
-Referência Radiant: c5cf46774fe567b49d7f5af1e22056286a14f1db
+Referência Radiant: 33fd4efb482bc83564e868e6d9c3859cb8de15e9
 
 O Demerzel nasceu do ADR-0002 do Radiant. Em 2026-10-17 o owner decidiu que
 ele continua sendo mecânica de despacho, com um núcleo que não depende do
 Radiant e uma integração Radiant como única entrada no primeiro incremento.
-Essa decisão está proposta no Radiant como ADR-0003
-([faelplg/radiant#22](https://github.com/faelplg/radiant/pull/22)), que
-substitui em parte o ADR-0002. O Radiant também é o processo usado para
-desenvolver o Demerzel.
+Essa decisão foi aceita no Radiant como ADR-0003
+(`docs/adrs/ADR-0003-demerzel-independent-core.md` no checkout indicado pelo
+pin), que substitui em parte o ADR-0002. O Radiant também é o processo usado
+para desenvolver o Demerzel.
 
 ## Intenção e participante
 
