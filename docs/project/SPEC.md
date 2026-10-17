@@ -154,15 +154,20 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args de modelo e esforço>` |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --timeout <ms>` |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
-| Esperar | `herdr agent wait <nome> --timeout <ms>` |
+| Esperar | Ciclo próprio: a cada intervalo curto, lê `herdr api snapshot` e confere o arquivo de retorno, até cada tarefa chegar a um estado de parada ou o timeout expirar. `herdr agent wait` não serve sozinho: não vê o arquivo de retorno e, sem `--until`, só volta em `idle`, `done` ou `blocked`. |
 | Encerrar | `herdr workspace close <workspace>`; com descarte, `herdr worktree remove --workspace <workspace>` |
 
 - No herdr 0.9.0, `worktree create` abre um workspace próprio com uma aba e um
   pane. A "aba própria" da unidade é essa aba.
 - O path do worktree é `<registro do projeto>/worktrees/<id>`, decidido antes
   do primeiro efeito para que a recusa de path existente seja verificável.
-- O nome do agente é o ID em minúsculas, com `.` trocado por `-`, porque o
-  herdr exige `[a-z][a-z0-9_-]{0,31}`.
+- O herdr exige nome de agente em `[a-z][a-z0-9_-]{0,31}`, único entre os
+  agentes vivos. O nome é `dz-` mais os 16 primeiros hex do sha256 da chave do
+  projeto seguida de `:` e do ID da tarefa: tem 19 caracteres, começa por
+  letra e não colide entre IDs que só diferem em caixa ou pontuação. Antes do
+  primeiro efeito, o núcleo confere no snapshot que nenhum agente vivo usa o
+  nome; se usa, a recusa é `agent-name-taken`. O nome é gravado no registro e
+  nunca recalculado.
 - Tabela de lançamento, só para os dois harnesses com adapter Radiant:
 
   | Harness | `--kind` | Modelo | Esforço |
@@ -193,9 +198,13 @@ incremento.
    consumidor precisa estar no mesmo pin desse checkout.
 3. **Base.** `--base <ref>`, ou o branch atual do checkout chamador; em HEAD
    destacado, o commit de HEAD. A base é resolvida para um commit e os dois são
-   gravados.
+   gravados. O `.radiant.json` lido do commit base precisa ter o mesmo
+   `radiant_revision` que o gate validou no checkout chamador; se diverge, ou
+   se falta, a recusa é `pin-mismatch`. Assim o gate vale para a árvore que
+   será despachada, não só para o working tree de quem chama.
 4. **Contrato.** O prefixo do ID (`TC-0025` em `TC-0025.1`) localiza o arquivo
-   `TC-0025-*.md` no diretório `contracts` do `.radiant.json`; precisa haver
+   `TC-0025-*.md` no diretório `contracts` do `.radiant.json` do commit base;
+   precisa haver
    exatamente um. O contrato é lido do commit base, não do working tree, para
    que a sessão despachada veja o mesmo texto que foi validado. A ativação
    (`ACTIVE.md`) não é verificada: é texto livre, e ativar contrato é decisão do
@@ -354,6 +363,7 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | `routing.json` ausente ou inválido, ou regra inexistente | `routing-invalid` | Integração |
 | Tarefa ou pedido fora do formato | `task-invalid` | Núcleo |
 | ID já registrado e não `closed` | `task-exists` | Núcleo |
+| Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
 
 ## 6. Segurança e egress
 
@@ -388,11 +398,13 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
 4. **Pedido.** Um contrato de fixture com marcadores únicos prova que nenhum
    deles aparece no pedido gravado ou enviado.
 5. **Registro.** Transições, reconciliação para `lost`, `launch-failed` com
-   `created`, `request_sent` em cada desfecho de envio, e dois `dispatch`
-   concorrentes serializados pelo lock.
+   `created`, `request_sent` em cada desfecho de envio, dois `dispatch`
+   concorrentes serializados pelo lock, nomes de agente distintos para IDs que
+   só diferem em caixa ou pontuação, e `wait` voltando quando o retorno aparece
+   com o agente ainda `working` e quando o estado passa a `unknown`.
 6. **Integração Radiant.** Consumidor de fixture contra o checkout Radiant no
-   pin: localização do contrato no commit base, validação pelo CLI do
-   Radiant, roteamento com descarte e com `hold` por capacidade, e gate de pin
+   pin: localização do contrato no commit base, recusa de base com pin
+   diferente do checkout validado, validação pelo CLI do Radiant, roteamento com descarte e com `hold` por capacidade, e gate de pin
    divergente.
 7. **Cenário herdr.** Backend contra o herdr real numa sessão nomeada e
    isolada: versão, criação de worktree e workspace, snapshot, fechamento e
