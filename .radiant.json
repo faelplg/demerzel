@@ -1,7 +1,7 @@
 {
   "radiant_revision": "33fd4efb482bc83564e868e6d9c3859cb8de15e9",
   "frame": "docs/project/FRAME.md",
-  "spec": null,
+  "spec": "docs/project/SPEC.md",
   "plan": null,
   "workflow": null,
   "engineering_profile": null,
