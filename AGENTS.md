@@ -20,5 +20,6 @@ aqui quando o Plan introduzir a stack.
 
 A decisão que origina este produto é o ADR-0002 do Radiant
 (`docs/adrs/ADR-0002-backend-dispatch-demerzel.md` no checkout indicado pelo
-pin). Até existirem Frame e Spec, ele é a referência de papel e fronteiras.
+pin), substituído em parte pelo ADR-0003. Papel e fronteiras estão no Frame,
+em `docs/project/FRAME.md`.
 <!-- radiant:end -->
