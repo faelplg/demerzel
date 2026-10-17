@@ -102,8 +102,10 @@ O Demerzel nunca:
   leva ao humano;
 - rebaixa capacidade em silêncio; sem candidato viável na capacidade pedida, a
   unidade fica em HOLD;
-- passa secrets no pedido; o pedido leva só paths, e o conteúdo do contrato
-  não sai da máquina.
+- embute conteúdo do contrato ou secrets no pedido; o pedido leva só paths.
+  O harness lançado lê o contrato e o envia ao seu provedor de modelo como
+  faria numa sessão aberta à mão, então rotear para um harness é também uma
+  decisão de egress.
 
 Todas as verificações rodam antes do primeiro efeito, e recusas não criam
 nada. As recusas estão na seção 4 do ADR-0002; a seção 2 do ADR-0003 diz
