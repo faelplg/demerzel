@@ -1,8 +1,8 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.1, 2026-10-17
+Revisão da Spec: 0.2, 2026-10-18
 Frame: [revisão 0.3](FRAME.md)
-Referência Radiant: 33fd4efb482bc83564e868e6d9c3859cb8de15e9
+Referência Radiant: a8428040709656ad23f27a9d6639f6c0dec8a94f
 
 Esta Spec define o comportamento observável do primeiro incremento: o núcleo
 de despacho, a integração Radiant e os comandos `dispatch`, `resume`,
@@ -204,24 +204,26 @@ incremento.
    será despachada, não só para o working tree de quem chama.
 4. **Contrato.** O prefixo do ID (`TC-0025` em `TC-0025.1`) localiza o arquivo
    `TC-0025-*.md` no diretório `contracts` do `.radiant.json` do commit base;
-   precisa haver
-   exatamente um. O contrato é lido do commit base, não do working tree, para
+   precisa haver exatamente um. O contrato é lido do commit base, não do working tree, para
    que a sessão despachada veja o mesmo texto que foi validado. A ativação
    (`ACTIVE.md`) não é verificada: é texto livre, e ativar contrato é decisão do
    orquestrador.
-5. **Unidades e regras.** O bloco `radiant-units` e o `routing.json` são
-   validados por um CLI read-only do Radiant, chamado pela integração como o
-   `check_project.py`. O Radiant mantém o único corpo dessas regras
-   (`validators/dispatch_formats.py` e `validators/radiant_yaml.py`); o
-   Demerzel não as reimplementa. Esse CLI ainda não existe no pin 33fd4ef e
-   entra no Radiant por um PR próprio antes do contrato que implementa a
-   integração, com o pin do Demerzel atualizado para a revisão dele. Nome e
-   interface são decididos nesse PR.
-6. **Roteamento.** Lê `$XDG_CONFIG_HOME/radiant/routing.json` (ou
-   `~/.config/radiant/routing.json`) e aplica a regra pedida por `--rule <id>`,
-   ou `default` sem a flag:
-   - descarta candidatos sem `adapters/<harness>/` no checkout, sem suporte no
-     backend ou cujo `provides.json` não cobre os `requires` da unidade;
+5. **Unidades e regras.** O Radiant mantém o único corpo dessas regras, e o
+   Demerzel não as reimplementa nem lê YAML. A integração chama
+   `python3 <radiant.root>/validators/check_dispatch.py`, read-only:
+   - `units -`, com o contrato do commit base na entrada padrão, devolve
+     `{"units": [...]}` já lido pelo leitor restrito do Radiant;
+   - `routing`, sem path, valida `$XDG_CONFIG_HOME/radiant/routing.json` (ou
+     `~/.config/radiant/routing.json`) e devolve as regras;
+   - saída `0` traz o valor em JSON; saída `1` traz `{"errors": [...]}`, que
+     vira `units-invalid` ou `routing-invalid` com os erros na mensagem; saída
+     `2` é erro de uso e vira falha interna, nunca efeito.
+6. **Roteamento.** Aplica às regras validadas a regra pedida por
+   `--rule <id>`, ou `default` sem a flag:
+   - descarta candidatos sem suporte no backend ou cujo `provides.json` não
+     cobre os `requires` da unidade. Candidato sem adapter Radiant já é erro
+     de `check_dispatch.py`, que só aceita como adapter o diretório com
+     `README.md`, `capabilities.json` e `provides.json`;
    - capacidade efetiva: a do candidato quando presente, senão a da unidade,
      senão a padrão do papel em `agents.json`; candidato abaixo da capacidade
      da unidade não é viável;
@@ -335,7 +337,7 @@ worktree, workspace ou chamada de efeito no backend.
 | Dependência não terminou | `dependency-pending` | Núcleo |
 | `writes` se sobrepõe a tarefa que não está `closed` | `writes-overlap` | Núcleo |
 | Nenhum candidato viável, com `hold: true` se só faltou capacidade | `no-viable-candidate` | Integração |
-| Harness sem adapter Radiant | `harness-without-adapter`, motivo de descarte de cada candidato e recusa quando nenhum outro é viável | Integração |
+| Harness sem adapter Radiant | `harness-without-adapter`, quando `check_dispatch.py routing` aponta candidato sem adapter | Integração |
 | herdr parado | `backend-unavailable` | Núcleo |
 | herdr abaixo da mínima | `backend-version` | Núcleo |
 | Branch já existe | `branch-exists` | Núcleo |
@@ -404,7 +406,8 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    com o agente ainda `working` e quando o estado passa a `unknown`.
 6. **Integração Radiant.** Consumidor de fixture contra o checkout Radiant no
    pin: localização do contrato no commit base, recusa de base com pin
-   diferente do checkout validado, validação pelo CLI do Radiant, roteamento com descarte e com `hold` por capacidade, e gate de pin
+   diferente do checkout validado, validação por `check_dispatch.py`,
+   roteamento com descarte e com `hold` por capacidade, e gate de pin
    divergente.
 7. **Cenário herdr.** Backend contra o herdr real numa sessão nomeada e
    isolada: versão, criação de worktree e workspace, snapshot, fechamento e
@@ -443,4 +446,4 @@ Aprovadas em 2026-10-17, junto com esta Spec.
 | Branch e worktree no `close` | O branch nunca é apagado; `--discard-worktree` remove só o worktree |
 | Dependência terminada | `closed` depois de `collected`, com o branch dela já na base |
 | Pedido pendente | Comando `resume`, só para o pedido inicial |
-| Validação de unidades e regras | CLI read-only no Radiant, sem segunda implementação no Demerzel |
+| Validação de unidades e regras | CLI read-only no Radiant, sem segunda implementação no Demerzel; entrou como `validators/check_dispatch.py` em faelplg/radiant#24 |
