@@ -216,8 +216,11 @@ incremento.
    - `routing`, sem path, valida `$XDG_CONFIG_HOME/radiant/routing.json` (ou
      `~/.config/radiant/routing.json`) e devolve as regras;
    - saída `0` traz o valor em JSON; saída `1` traz `{"errors": [...]}`, que
-     vira `units-invalid` ou `routing-invalid` com os erros na mensagem; saída
-     `2` é erro de uso e vira falha interna, nunca efeito.
+     vira `units-invalid` ou `routing-invalid` com os erros na mensagem, salvo
+     quando algum erro de `routing` é de candidato sem adapter
+     (`harness sem adapter`): aí a recusa é `harness-without-adapter`, com os
+     demais erros na mensagem; saída `2` é erro de uso e vira falha interna,
+     nunca efeito.
 6. **Roteamento.** Aplica às regras validadas a regra pedida por
    `--rule <id>`, ou `default` sem a flag:
    - descarta candidatos sem suporte no backend ou cujo `provides.json` não
