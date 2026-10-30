@@ -1,8 +1,8 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.2, 2026-10-18
+Revisão da Spec: 0.3, 2026-10-30
 Frame: [revisão 0.3](FRAME.md)
-Referência Radiant: a8428040709656ad23f27a9d6639f6c0dec8a94f
+Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 Esta Spec define o comportamento observável do primeiro incremento: o núcleo
 de despacho, a integração Radiant e os comandos `dispatch`, `resume`,
@@ -125,6 +125,7 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
 {
   "schema": 1,
   "trusted_repositories": ["/Users/fael/workspaces/github/faelplg/aikm"],
+  "herdr": { "session": "lab" },
   "radiant": {
     "root": "/Users/fael/workspaces/github/faelplg/radiant",
     "branch_prefix": "radiant/"
@@ -136,6 +137,11 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
 - `trusted_repositories`: paths absolutos de checkouts principais. Só para
   esses o backend passa `--trust-repository` ao herdr. Ausente ou vazio:
   nenhum. Fora da lista, um prompt de confiança aparece como `blocked`.
+- `herdr`: lido só pelo backend herdr. `session` é opcional e segue
+  `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`; presente, toda chamada ao herdr leva
+  `--session <nome>`, inclusive a leitura de versão; ausente, o herdr usa a
+  sessão padrão. O herdr 0.9.0 só escolhe a sessão por essa flag, sem
+  variável de ambiente.
 - `radiant`: lido só pela integração. `root` é obrigatório para despachar
   unidades e não tem padrão. `branch_prefix` é opcional, padrão `radiant/`.
 - Arquivo ausente: o núcleo usa os padrões e a integração recusa por falta de
@@ -145,14 +151,14 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
 
 Versão mínima: 0.9.0, a única conferida (ADR-0002). Versões acima são
 aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel lê
-`herdr status --json` e exige `server.running`, `server.compatible` e
+`herdr status --json`, na sessão da configuração, e exige `server.running`, `server.compatible` e
 `server.version` igual ou acima da mínima.
 
 | Operação | herdr 0.9.0 |
 | --- | --- |
 | Criar worktree e sessão | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <id> --no-focus`, mais `--trust-repository` só para repositório confiável. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args de modelo e esforço>` |
-| Enviar pedido | `herdr agent prompt <nome> <texto> --wait --timeout <ms>` |
+| Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
 | Esperar | Ciclo próprio: a cada intervalo curto, lê `herdr api snapshot` e confere o arquivo de retorno, até cada tarefa chegar a um estado de parada ou o timeout expirar. `herdr agent wait` não serve sozinho: não vê o arquivo de retorno e, sem `--until`, só volta em `idle`, `done` ou `blocked`. |
 | Encerrar | `herdr workspace close <workspace>`; com descarte, `herdr worktree remove --workspace <workspace>` |
@@ -414,7 +420,10 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    divergente.
 7. **Cenário herdr.** Backend contra o herdr real numa sessão nomeada e
    isolada: versão, criação de worktree e workspace, snapshot, fechamento e
-   descarte.
+   descarte. Prova também que o envio volta em `working` com o agente ainda
+   trabalhando e que outro `dispatch` do mesmo projeto não espera esse turno,
+   que `close` sem `--discard-worktree` preserva worktree e branch, e que
+   `close` em `working` é recusado.
 8. **Smoke com harness real.** Claude Code e Codex lançados pelo herdr,
    pedido entregue, retorno gravado e coletado, registrado na verificação do
    contrato.
@@ -450,3 +459,10 @@ Aprovadas em 2026-10-17, junto com esta Spec.
 | Dependência terminada | `closed` depois de `collected`, com o branch dela já na base |
 | Pedido pendente | Comando `resume`, só para o pedido inicial |
 | Validação de unidades e regras | CLI read-only no Radiant, sem segunda implementação no Demerzel; entrou como `validators/check_dispatch.py` em faelplg/radiant#24 |
+
+Aprovadas em 2026-10-30, na revisão 0.3, depois da crítica do Plan 0.1:
+
+| Questão | Decisão |
+| --- | --- |
+| Sessão do herdr | `herdr.session` na configuração, passado como `--session` em toda chamada |
+| Espera no envio do pedido | `--until working --until blocked`, para o `dispatch` voltar quando o agente começa |
