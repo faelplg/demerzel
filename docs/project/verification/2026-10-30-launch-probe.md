@@ -4,8 +4,10 @@ Data: 2026-10-30
 Plan: [revisão 0.2](../PLAN.md), incremento 1
 Spec: [revisão 0.3](../SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
-Estado: **HOLD**. O ponto de parada do incremento 1 foi atingido para o
-Claude Code; a decisão é do owner.
+Estado: **HOLD**. Com o worktree criado pelo herdr, o ponto de parada foi
+atingido para o Claude Code. Com o worktree criado pelo próprio Claude Code
+(`--worktree`), os dois harnesses passam no critério, mas isso diverge da
+Spec 0.3, que precisa mudar antes do incremento 2. A decisão é do owner.
 
 ## Ambiente
 
@@ -74,9 +76,50 @@ Os dados brutos estão em
 - O que esta prova não diz: se a unidade carrega contexto suficiente, e os
   níveis de esforço aceitos pelo Claude Code, que não chegou a iniciar.
 
+## Segunda prova: worktree criado pelo Claude Code
+
+Pergunta: o `claude --worktree <nome>` (opção `-w` do `claude --help`
+2.1.286), iniciado na raiz de um repositório confiável, evita o diálogo de
+confiança?
+
+Método: o owner confiou uma vez na raiz do repositório descartável no
+Claude Code. Cada lançamento abriu um workspace com
+`herdr workspace create --cwd <repo>` e iniciou
+`herdr agent start --kind claude -- --worktree dz-w<n> --model claude-sonnet-5-5 --effort <nível>`,
+seguido do mesmo envio, espera e fechamento da primeira prova. Dados em
+[2026-10-30-launch-probe-claude-worktree.jsonl](2026-10-30-launch-probe-claude-worktree.jsonl).
+
+| Rodada | Lançamentos | Diálogo de confiança | Pedido virou trabalho |
+| --- | --- | --- | --- |
+| 1 (`dz-w1` a `dz-w5`) | 5 | 0 de 5 | 0 de 5: "Login expired", o CLI estava sem login |
+| 2 (`dz-w7` a `dz-w11`), depois do `/login` do owner | 5 | 0 de 5 | 5 de 5 |
+
+- Na rodada 2, `agent start` ficou pronto em cerca de 4,9 s; `agent prompt`
+  voltou entre 0,5 s e 0,6 s com o agente em `working`; o turno terminou em
+  `done` entre 1,8 s e 6,0 s. O envio com `--until working --until blocked`
+  fica confirmado também no Claude Code.
+- Os níveis `low`, `medium`, `high`, `xhigh` e `max` iniciaram sem erro.
+- A falta de login é a autenticação inicial que o critério do Plan exclui,
+  mas mostra que o pré-requisito "CLIs autenticados" precisa ser conferido
+  antes de cada prova: o envio deu `agent_prompt_stalled`, sem erro próprio.
+
+Diferenças em relação à Spec 0.3, observadas no repositório descartável:
+
+- o worktree fica em `<repo>/.claude/worktrees/<nome>`, não em
+  `<registro do projeto>/worktrees/<id>`, e o Git o marca como `locked`;
+- o branch se chama `worktree-<nome>`, não `branch_prefix + id`;
+- o repositório ganha `.claude/` não rastreado, que precisa estar ignorado;
+- a base do worktree não foi escolhida pelo orquestrador; nesta prova todos
+  partiram do único commit de `main`. Como escolher a base continua sem
+  prova;
+- o herdr só vê o pane no cwd do repositório; o cwd do agente aparece em
+  `foreground_cwd`.
+
 ## Recursos que sobraram
 
-Os workspaces da prova foram fechados. No repositório descartável ficaram
-14 worktrees e seus branches `probe/*`; o descarte fica com o owner. A
-confiança registrada para a prova continua no `~/.claude.json` (pasta
-`wt/`) e no `~/.codex/config.toml` (raiz do repositório descartável).
+Os workspaces das duas provas foram fechados. No repositório descartável
+ficaram 14 worktrees com branches `probe/*`, criados pelo herdr, e 11
+worktrees `locked` em `.claude/worktrees/` com branches `worktree-dz-w*`,
+criados pelo Claude Code; o descarte fica com o owner. A confiança
+registrada para a prova continua no `~/.claude.json` (pasta `wt/` e raiz do
+repositório) e no `~/.codex/config.toml` (raiz do repositório).
