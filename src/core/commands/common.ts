@@ -1,6 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
-import type { Backend, Probe, Snapshot } from "../backend.ts";
+import { BackendError, type Backend, type Probe, type Snapshot } from "../backend.ts";
 import { loadConfig, type Config } from "../config.ts";
 import type { Env } from "../env.ts";
 import { gitOk } from "../git.ts";
@@ -99,15 +99,65 @@ export function isLock(value: ProjectLock | Outcome): value is ProjectLock {
   return value instanceof ProjectLock;
 }
 
+const NEXT_UNAVAILABLE = "Suba o servidor do herdr na sessão configurada e rode de novo.";
+
+export function backendUnavailable(command: string, error: BackendError): Outcome {
+  return refuse(command, "backend-unavailable", `o backend falhou: ${error.command}: ${error.detail}`, NEXT_UNAVAILABLE);
+}
+
 export async function reachBackend(command: string, backend: Backend): Promise<Probe | Outcome> {
-  const probe = await backend.probe();
+  let probe: Probe;
+  try {
+    probe = await backend.probe();
+  } catch (error) {
+    if (error instanceof BackendError) return backendUnavailable(command, error);
+    throw error;
+  }
+  const said = probe.detail === null ? "" : `: ${probe.detail}`;
   if (!probe.running || !probe.compatible) {
-    return refuse(command, "backend-unavailable", "o backend não está rodando ou não é compatível", "Suba o servidor do herdr na sessão configurada e rode de novo.");
+    return refuse(command, "backend-unavailable", `o backend não está rodando ou não é compatível${said}`, NEXT_UNAVAILABLE);
   }
   if (!probe.versionOk) {
-    return refuse(command, "backend-version", `versão do backend ${probe.version ?? "desconhecida"} abaixo da mínima ${probe.minimum}`, `Atualize o herdr para ${probe.minimum} ou acima.`);
+    return refuse(command, "backend-version", `versão do backend ${probe.version ?? "desconhecida"} abaixo da mínima ${probe.minimum}${said}`, `Atualize o herdr para ${probe.minimum} ou acima.`);
   }
   return probe;
+}
+
+// Spec 2.3, revision 0.9. Before the first effect of a command, a backend
+// failure is the refusal backend-unavailable.
+export async function readSnapshot(command: string, backend: Backend): Promise<Snapshot | Outcome> {
+  try {
+    return await backend.snapshot();
+  } catch (error) {
+    if (error instanceof BackendError) return backendUnavailable(command, error);
+    throw error;
+  }
+}
+
+export function isSnapshot(value: Snapshot | Outcome): value is Snapshot {
+  return !("envelope" in value);
+}
+
+// After the first effect, a failure to read the backend is not a refusal:
+// the command keeps what it recorded and the agent is observed as unknown.
+export async function snapshotAfterEffect(backend: Backend): Promise<Snapshot | null> {
+  try {
+    return await backend.snapshot();
+  } catch (error) {
+    if (error instanceof BackendError) return null;
+    throw error;
+  }
+}
+
+export function viewAfterEffect(record: TaskRecord, snapshot: Snapshot | null): TaskView {
+  const v = view(record, snapshot);
+  if (snapshot === null && v.report !== null) v.agent = "unknown";
+  return v;
+}
+
+export function backendErrorDetail(error: unknown): string {
+  if (error instanceof BackendError) return `${error.command}: ${error.detail}`;
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function isProbe(value: Probe | Outcome): value is Probe {

@@ -1,5 +1,5 @@
 import type { TaskRecord } from "../types.ts";
-import { clock, done, isOutcome, isProbe, notFound, open, reachBackend, view, wrongLifecycle, type Context, type Outcome, type TaskView } from "./common.ts";
+import { clock, done, isOutcome, isProbe, isSnapshot, notFound, open, reachBackend, readSnapshot, view, wrongLifecycle, type Context, type Outcome, type TaskView } from "./common.ts";
 
 const C = "wait";
 
@@ -31,7 +31,8 @@ export async function wait(input: WaitInput, ctx: Context): Promise<Outcome> {
     // never an agent in `unknown`.
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
-    const snapshot = await ctx.backend.snapshot();
+    const snapshot = await readSnapshot(C, ctx.backend);
+    if (!isSnapshot(snapshot)) return snapshot;
     const tasks: TaskView[] = records.map((record) => view(record, snapshot));
     const settled = tasks.every((t) => t.report === "present" || STOP.has(t.agent ?? ""));
     if (settled || now() >= deadline) {

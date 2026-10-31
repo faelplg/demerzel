@@ -1,5 +1,5 @@
 import { entry } from "../registry.ts";
-import { agentState, done, isLock, isOutcome, isProbe, lock, notFound, open, planRecovery, reachBackend, refuse, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import { agentState, backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, transition, view, viewAfterEffect, wrongLifecycle, type Context, type Outcome } from "./common.ts";
 
 const C = "resume";
 
@@ -15,7 +15,8 @@ export async function resume(id: string, ctx: Context): Promise<Outcome> {
     if (registry.read(id) === null) return notFound(C, id);
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
-    const snapshot = await ctx.backend.snapshot();
+    const snapshot = await readSnapshot(C, ctx.backend);
+    if (!isSnapshot(snapshot)) return snapshot;
     const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
     const record = recovery.records.find((r) => r.id === id);
     if (record === undefined) return notFound(C, id);
@@ -36,14 +37,17 @@ export async function resume(id: string, ctx: Context): Promise<Outcome> {
     registry.write(record);
     ctx.trace?.("wrote:send-started");
     let sent;
+    let failure: string | null = null;
     try {
       sent = await ctx.backend.send(record.agent_name, record.request_text);
-    } catch {
+    } catch (error) {
       sent = "unknown" as const;
+      failure = backendErrorDetail(error);
     }
     record.request_sent = sent === "sent" ? true : sent === "not-ready" ? false : "unknown";
-    transition(registry, record, "launched", { by: C, request_sent: record.request_sent }, ctx.trace);
-    return done(C, record.request_sent === true ? 0 : 1, [view(record, await ctx.backend.snapshot())]);
+    transition(registry, record, "launched", { by: C, request_sent: record.request_sent, ...(failure === null ? {} : { backend_error: failure }) }, ctx.trace);
+    const after = await snapshotAfterEffect(ctx.backend);
+    return done(C, record.request_sent === true && after !== null ? 0 : 1, [viewAfterEffect(record, after)]);
   } finally {
     held.release();
   }
