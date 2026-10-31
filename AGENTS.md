@@ -25,8 +25,14 @@ Comandos, da raiz:
 - `bun run test:core`: a suíte de `test/core/` num `PATH` só com `git` e
   `bun`, sem `python3`.
 - `bun run typecheck` e `bun test`: a checagem de tipos e todos os testes com
-  o `PATH` normal.
-- `./src/cli.ts --version`: o entrypoint `demerzel` sem instalar.
+  o `PATH` normal. Os testes do backend herdr usam um `herdr` falso no `PATH`.
+- `bun run scenario:herdr`: o cenário contra o herdr real, num servidor
+  isolado que o próprio script sobe e para, sem harness de modelo. Fora do
+  `check`.
+- `DEMERZEL_SMOKE_REPO=<repositório descartável> bun run smoke:herdr`: o smoke
+  com Claude Code e Codex reais, rodado pelo orquestrador com o owner
+  presente. Gasta modelo. Fora do `check`.
+- `./src/cli.ts <comando>`: o entrypoint `demerzel` sem instalar; `--version`, `resume`, `status`, `wait`, `collect` e `close`.
 
 Cada teste nomeia o comportamento que protege e a regressão que o faria
 falhar, como pede a Spec, seção 7.
