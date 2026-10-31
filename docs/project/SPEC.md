@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.4, 2026-10-31
+Revisão da Spec: 0.5, 2026-10-31
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -84,6 +84,10 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
 - Dentro do projeto: `tasks/<id>.json`, um arquivo por tarefa, gravado por
   arquivo temporário e rename; `worktrees/<id>/`, os worktrees criados; e
   `lock`, que serializa `dispatch`, `resume` e `close`.
+- O lock é um arquivo criado de forma exclusiva, com o pid e o horário de
+  quem o tem. Um comando espera por ele até 30 s. Se o pid gravado não existe
+  mais, o lock é retomado, e a tarefa ou o comando registra que retomou.
+  Esgotado o tempo, a recusa é `project-locked`.
 - Cada tarefa registra: a tarefa recebida, o pedido final, harness, modelo,
   esforço aplicado ou omitido, base (ref e commit), branch, path do worktree,
   IDs no backend (workspace, aba, pane, nome do agente), `provenance`, ciclo de
@@ -403,6 +407,7 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | Tarefa ou pedido fora do formato | `task-invalid` | Núcleo |
 | ID já registrado e não `closed` | `task-exists` | Núcleo |
 | Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
+| Lock do projeto ocupado por um processo vivo por mais de 30 s | `project-locked` | Núcleo |
 
 ## 6. Segurança e egress
 
@@ -512,3 +517,10 @@ Valem quando o owner aprovar o PR desta revisão:
 | Confiança | Pré-requisito do owner, uma vez por projeto em cada CLI; sai `trusted_repositories` e o backend nunca passa `--trust-repository` |
 | Descarte do worktree | `git worktree remove` sem `--force`, igual nos dois harnesses; recusa do Git sai com `1` e mantém o worktree |
 | Lançamento do Claude Code | Pós-condição de cwd, branch e commit base; se falha, `launch-failed` |
+
+Revisão 0.5, 2026-10-31, ao preparar o contrato do núcleo (TC-0001). Vale
+quando o owner aprovar o PR do contrato:
+
+| Questão | Decisão |
+| --- | --- |
+| Espera pelo lock do projeto | Até 30 s; lock de processo encerrado é retomado e registrado; depois disso, `project-locked` |

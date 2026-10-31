@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
 Revisão do Plan: 0.3, 2026-10-31
-Spec: [revisão 0.4](SPEC.md)
+Spec: [revisão 0.5](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
@@ -33,8 +33,8 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-3. **Núcleo.** Contrato. `src/core/` com `Task`, `Request`, montador do
-   pedido, configuração, registro com lock, ciclo de vida, recusas do núcleo e
+3. **Núcleo.** Contrato [TC-0001](contracts/TC-0001-core.md). `src/core/`
+   com `Task`, `Request`, montador do pedido, configuração, registro com lock, ciclo de vida, recusas do núcleo e
    os seis comandos sobre uma interface de backend, com o backend falso em
    memória. Evidência: verificações 1, 2 e 5, e a parte do núcleo das
    verificações 3 e 4. A suíte 1 roda sem `python3` no `PATH`.
