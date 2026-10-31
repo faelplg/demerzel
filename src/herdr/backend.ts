@@ -84,7 +84,8 @@ export class HerdrBackend implements Backend {
     try {
       data = JSON.parse(proc.stdout.toString());
     } catch {
-      return down(`herdr status --json não devolveu JSON (saída ${proc.exitCode ?? "?"})`);
+      const said = proc.stderr.toString().trim() || proc.stdout.toString().trim();
+      return down(`herdr status --json não devolveu JSON (saída ${proc.exitCode ?? "?"})${said === "" ? "" : `: ${said.slice(0, 300)}`}`);
     }
     const running = field(data, "server", "running") === true;
     const compatible = field(data, "server", "compatible") === true;
