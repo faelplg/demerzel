@@ -15,8 +15,18 @@ mapa. Regras e comandos deste produto pertencem ao contexto local indicado ali.
 Quando houver `engineering_profile` no mapa, leia-o junto com o Baseline do
 checkout Radiant antes de iniciar um Build.
 
-Ainda não há comandos: o repositório não tem manifest nem CI. Eles entram
-aqui quando o Plan introduzir a stack.
+Stack: Bun 1.4.2 ou acima e TypeScript estrito, sem dependências de runtime.
+Comandos, da raiz:
+
+- `bun install --frozen-lockfile`: instala as dependências de desenvolvimento
+  fixadas no `bun.lock`.
+- `bun run check`: checagem de tipos e testes. Todo incremento termina com ele
+  passando.
+- `bun run typecheck` e `bun test`: cada parte do check em separado.
+- `./src/cli.ts --version`: o entrypoint `demerzel` sem instalar.
+
+Cada teste nomeia o comportamento que protege e a regressão que o faria
+falhar, como pede a Spec, seção 7.
 
 A decisão que origina este produto é o ADR-0002 do Radiant
 (`docs/adrs/ADR-0002-backend-dispatch-demerzel.md` no checkout indicado pelo

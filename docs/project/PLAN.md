@@ -23,19 +23,16 @@ a criação do worktree do Claude Code e tirou a confiança do Demerzel.
 - Spec 0.2 ([faelplg/demerzel#2](https://github.com/faelplg/demerzel/pull/2), [faelplg/demerzel#3](https://github.com/faelplg/demerzel/pull/3))
 - Plan 0.2 e Spec 0.3 ([faelplg/demerzel#5](https://github.com/faelplg/demerzel/pull/5))
 - 1, prova de lançamento ([faelplg/demerzel#6](https://github.com/faelplg/demerzel/pull/6), [faelplg/demerzel#7](https://github.com/faelplg/demerzel/pull/7)): passou com um modo de worktree por harness. Codex com `herdr worktree create`, 0 de 5 intervenções; Claude Code com `--worktree` e hook `WorktreeCreate`, 0 de 5. Com o worktree do herdr, o Claude Code pedia confiança em 5 de 5, e isso levou à Spec 0.4.
+- 2, stack (o PR desta revisão): Bun 1.4.2, TypeScript 7.0.2 estrito, `bun run check` e o entrypoint que só responde `--version`.
 
 ## Próximos
 
-Do incremento 2 em diante, cada um termina com `bun run check` passando e a
+Do incremento 3 em diante, cada um termina com `bun run check` passando e a
 evidência listada. "Contrato" marca incrementos com risco real, que precisam
 de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-2. **Stack.** Sem contrato. Bun e TypeScript estrito, `bun test`, checagem de
-   tipos e `bun run check` reunindo os dois; entrypoint `demerzel` que só
-   responde `--version` e recusa o resto com código `2`. Os comandos entram no
-   `AGENTS.md`. Evidência: `bun run check` passando num checkout limpo.
 3. **Núcleo.** Contrato. `src/core/` com `Task`, `Request`, montador do
    pedido, configuração, registro com lock, ciclo de vida, recusas do núcleo e
    os seis comandos sobre uma interface de backend, com o backend falso em
