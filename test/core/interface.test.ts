@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { dispatch } from "../../src/core/index.ts";
-import type { EffectPoint } from "../../src/core/fake-backend.ts";
+import { close, dispatch } from "../../src/core/index.ts";
+import { FakeBackend, type EffectPoint } from "../../src/core/fake-backend.ts";
 import { resolveProject } from "../../src/core/project.ts";
 import type { TaskRecord } from "../../src/core/types.ts";
 import { backend, context, sandbox, task, type Sandbox } from "./helpers/sandbox.ts";
@@ -105,5 +105,23 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
       "wrote:send-started@1",
       "wrote:launched@2",
     ]);
+  });
+});
+
+describe("fake backend state across instances (R12)", () => {
+  // Protects: the persisted fake keeps every effect, so the tests between
+  // processes see what the effects did. Fails if an update is lost when the
+  // state is reloaded.
+  test("send and close are visible from another instance", async () => {
+    const stateFile = join(sb.root, "fake.json");
+    const be = new FakeBackend(sb.env, { stateFile });
+    const d = await dispatch({ task: task(), humanApproved: false }, context(sb, be));
+    const other = new FakeBackend(sb.env, { stateFile });
+    expect(other.snapshotNow().agents.find((a) => a.name === d.envelope.tasks[0]?.agent_name)?.status).toBe("working");
+    other.setAgentStatus(d.envelope.tasks[0]?.agent_name ?? "", "idle");
+    expect((await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be))).code).toBe(0);
+    const third = new FakeBackend(sb.env, { stateFile });
+    expect(third.snapshotNow().workspaces).toEqual([]);
+    expect(third.snapshotNow().agents).toEqual([]);
   });
 });

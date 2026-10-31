@@ -1,5 +1,5 @@
 import { entry } from "../registry.ts";
-import { agentState, done, isLock, isOutcome, isProbe, lock, notFound, open, reachBackend, recover, refuse, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import { agentState, done, isLock, isOutcome, isProbe, lock, notFound, open, planRecovery, reachBackend, refuse, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
 
 const C = "resume";
 
@@ -12,23 +12,26 @@ export async function resume(id: string, ctx: Context): Promise<Outcome> {
   const held = await lock(C, ctx, registry);
   if (!isLock(held)) return held;
   try {
-    let record = registry.read(id);
-    if (record === null) return notFound(C, id);
+    if (registry.read(id) === null) return notFound(C, id);
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
     const snapshot = await ctx.backend.snapshot();
-    recover(registry, snapshot, project, ctx.env, ctx.trace);
-    record = registry.read(id);
-    if (record === null) return notFound(C, id);
+    const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
+    const record = recovery.records.find((r) => r.id === id);
+    if (record === undefined) return notFound(C, id);
     if (record.lifecycle !== "launched") return wrongLifecycle(C, record, "launched");
     if (record.request_sent !== false) {
       return refuse(C, "request-already-sent", `o pedido da tarefa ${id} já saiu ou pode ter saído (request_sent: ${String(record.request_sent)})`, "Confira a aba do agente; o Demerzel não reenvia.");
     }
     const agent = agentState(record, snapshot);
     if (agent === "lost") return refuse(C, "task-lost", `o agente da tarefa ${id} não está no backend`, "Feche a tarefa; o Demerzel nunca relança sozinho.");
+    recovery.publish();
     if (agent === "blocked") return done(C, 1, [view(record, snapshot)]);
 
+    // Until the outcome is known the request may have arrived: an
+    // interruption here must never let a later resume send it again.
     record.send_started_at = new Date().toISOString();
+    record.request_sent = "unknown";
     record.history.push(entry("send-started", { by: C }));
     registry.write(record);
     ctx.trace?.("wrote:send-started");

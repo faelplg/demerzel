@@ -5,7 +5,7 @@ import { agentName } from "../project.ts";
 import { entry } from "../registry.ts";
 import { buildRequest, checkBranchName, checkPointers, overlaps, parseTask, resolveBase } from "../task.ts";
 import type { TaskRecord } from "../types.ts";
-import { done, isLock, isOutcome, isProbe, lock, open, reachBackend, recover, refuse, transition, view, type Context, type Outcome } from "./common.ts";
+import { done, isLock, isOutcome, isProbe, lock, open, planRecovery, reachBackend, refuse, transition, view, type Context, type Outcome } from "./common.ts";
 
 const C = "dispatch";
 
@@ -28,7 +28,7 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
     const snapshot = await ctx.backend.snapshot();
-    recover(registry, snapshot, project, ctx.env, ctx.trace);
+    const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
 
     if (registry.taken(task.id)) {
       return refuse(C, "task-exists", `o ID ${task.id} já está no registro deste projeto e nunca é reutilizado`, "Despache a unidade com um ID novo.");
@@ -36,7 +36,7 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     const base = resolveBase(task, project.callerRoot, ctx.env);
     if (!base.ok) return refuse(C, "task-invalid", base.message, "Passe uma base que resolva para um commit.");
 
-    const tasks = registry.list();
+    const tasks = recovery.records;
     for (const dep of task.dependsOn) {
       const other = tasks.find((t) => t.id === dep);
       const pending = (why: string) => refuse(C, "dependency-pending", `a dependência ${dep} não terminou: ${why}`, "Espere a dependência ser coletada, fechada e entrar na base.");
@@ -74,7 +74,9 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
       return refuse(C, "agent-name-taken", `o agente ${name} já está vivo no backend`, "Feche a sessão desse agente antes de despachar.");
     }
 
-    // From here on the decision is recorded and never re-read to decide again.
+    // No refusal is left: the recovery of interrupted tasks is written now,
+    // and from here on the decision is recorded and never re-read.
+    recovery.publish();
     const plan: LaunchPlan = {
       taskId: task.id,
       agentName: name,

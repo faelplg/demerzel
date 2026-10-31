@@ -42,7 +42,7 @@ export type FakeCall = { op: string; effect: boolean; args: Record<string, unkno
 
 type State = {
   next: number;
-  workspaces: Array<{ id: string; label: string }>;
+  workspaces: Array<{ id: string; label: string; tab: string; pane: string }>;
   agents: Array<{ name: string; status: SnapshotAgentStatus; pane: string }>;
   calls: FakeCall[];
   script: FakeScript;
@@ -73,14 +73,19 @@ export class FakeBackend implements Backend {
     renameSync(tmp, this.stateFile);
   }
 
+  // Appends to the state the calling method already loaded; reloading here
+  // would detach the references that method still changes.
   private log(op: string, effect: boolean, args: Record<string, unknown> = {}): void {
-    this.load().calls.push({ op, effect, args });
+    this.memory.calls.push({ op, effect, args });
     this.save();
   }
 
   // Test controls.
   get calls(): FakeCall[] {
     return this.load().calls;
+  }
+  snapshotNow(): State {
+    return this.load();
   }
   effectCalls(): FakeCall[] {
     return this.calls.filter((call) => call.effect);
@@ -155,7 +160,7 @@ export class FakeBackend implements Backend {
       ids.workspace = `w${n}`;
       ids.tab = `w${n}:t1`;
       ids.pane = `w${n}:p1`;
-      state.workspaces.push({ id: ids.workspace, label: plan.label });
+      state.workspaces.push({ id: ids.workspace, label: plan.label, tab: ids.tab, pane: ids.pane });
       this.save();
       onCreated({ kind: "workspace", id: ids.workspace });
       onCreated({ kind: "tab", id: ids.tab });

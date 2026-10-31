@@ -75,7 +75,63 @@ describe("observed state in two fields (R10)", () => {
   });
 });
 
+describe("wait observes changes while it waits (R14)", () => {
+  // Protects: wait reads the snapshot and the return file on every cycle.
+  // Fails if wait reads only once, or never advances the clock.
+  test("a report that appears during the wait ends it with 0", async () => {
+    const be = backend(sb);
+    const { ctx, t } = await launched(be);
+    let cycles = 0;
+    const w = await wait({ ids: [t.id], timeoutMs: null }, { ...ctx, sleep: async () => { if (++cycles === 3) writeReport(t.worktree, REPORT); } });
+    expect(w.code).toBe(0);
+    expect(cycles).toBe(3);
+    expect(w.envelope.tasks[0]?.agent).toBe("working");
+  });
+
+  test("an agent that turns unknown during the wait ends it with 1", async () => {
+    const be = backend(sb);
+    const { ctx, t } = await launched(be);
+    let cycles = 0;
+    const w = await wait({ ids: [t.id], timeoutMs: null }, { ...ctx, sleep: async () => { if (++cycles === 2) be.setAgentStatus(t.agent_name, "unknown"); } });
+    expect(w.code).toBe(1);
+    expect(cycles).toBe(2);
+    expect(w.envelope.tasks[0]?.agent).toBe("unknown");
+  });
+
+  test("the timeout is measured on the injected clock", async () => {
+    const be = backend(sb);
+    const { ctx, t } = await launched(be);
+    let fake = 0;
+    const w = await wait({ ids: [t.id], timeoutMs: 5_000 }, { ...ctx, waitIntervalMs: 1_000, now: () => fake, sleep: async (ms: number) => { fake += ms; } });
+    expect(w.code).toBe(1);
+    expect(fake).toBe(5_000);
+  });
+});
+
 describe("command matrix of Spec 4 (R14)", () => {
+  // Protects: a working agent is protected after a failed launch too. Fails
+  // if close skips the working check for launch-failed.
+  test("close refuses launch-failed with the agent working", async () => {
+    const be = backend(sb, { postcondition: "fail" });
+    const ctx = context(sb, be);
+    const d = await dispatch({ task: task({ harness: "claude-code" }), humanApproved: false }, ctx);
+    expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+    be.setAgentStatus(d.envelope.tasks[0]?.agent_name ?? "", "working");
+    expect((await close({ id: "TC-0099.1", discardWorktree: false }, ctx)).envelope.refusal?.code).toBe("task-working");
+    be.setAgentStatus(d.envelope.tasks[0]?.agent_name ?? "", "idle");
+    expect((await close({ id: "TC-0099.1", discardWorktree: false }, ctx)).code).toBe(0);
+  });
+
+  // Protects: Spec 2.1, provenance is recorded and returned without
+  // interpretation. Fails if the envelope drops it.
+  test("provenance round trip", async () => {
+    const be = backend(sb);
+    const ctx = context(sb, be);
+    const d = await dispatch({ task: task({ provenance: { rule: "audit-rule", contract: "docs/x.md" } }), humanApproved: false }, ctx);
+    expect(d.envelope.tasks[0]?.provenance).toEqual({ rule: "audit-rule", contract: "docs/x.md" });
+    expect((await status({ ids: ["TC-0099.1"], all: false }, ctx)).envelope.tasks[0]?.provenance).toEqual({ rule: "audit-rule", contract: "docs/x.md" });
+  });
+
   // Protects: each command accepts only the lifecycles of its row. Fails if
   // a command acts on a lifecycle the matrix refuses.
   test("resume: accepts only launched with request_sent false", async () => {

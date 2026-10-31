@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { git } from "../git.ts";
 import { entry, type Registry } from "../registry.ts";
 import type { TaskRecord } from "../types.ts";
-import { agentState, done, isLock, isOutcome, isProbe, lock, notFound, open, reachBackend, recover, refuse, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import { agentState, done, isLock, isOutcome, isProbe, lock, notFound, open, planRecovery, reachBackend, refuse, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
 
 const C = "close";
 
@@ -36,10 +36,11 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
   const held = await lock(C, ctx, registry);
   if (!isLock(held)) return held;
   try {
-    let record = registry.read(input.id);
-    if (record === null) return notFound(C, input.id);
+    const stored = registry.read(input.id);
+    if (stored === null) return notFound(C, input.id);
 
-    if (record.lifecycle === "closed") {
+    if (stored.lifecycle === "closed") {
+      const record = stored;
       if (!input.discardWorktree || record.worktree_removed || !existsSync(record.worktree)) {
         return wrongLifecycle(C, record, "launched, collected ou launch-failed; closed só para repetir o descarte de um worktree que ainda existe");
       }
@@ -52,15 +53,18 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
     const snapshot = await ctx.backend.snapshot();
-    recover(registry, snapshot, project, ctx.env, ctx.trace);
-    record = registry.read(input.id);
-    if (record === null) return notFound(C, input.id);
+    const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
+    const record = recovery.records.find((r) => r.id === input.id);
+    if (record === undefined) return notFound(C, input.id);
     if (record.lifecycle !== "launched" && record.lifecycle !== "collected" && record.lifecycle !== "launch-failed") {
       return wrongLifecycle(C, record, "launched, collected ou launch-failed");
     }
-    if (record.lifecycle !== "launch-failed" && agentState(record, snapshot) === "working") {
+    // A live agent that is working is protected in every lifecycle, also
+    // after a failed launch postcondition.
+    if (agentState(record, snapshot) === "working") {
       return refuse(C, "task-working", `o agente da tarefa ${input.id} está trabalhando, mesmo que o retorno já exista`, "Espere o agente parar; fechar mataria trabalho em curso.");
     }
+    recovery.publish();
     const workspace = record.backend_ids.workspace;
     if (workspace !== null && snapshot.workspaces.some((w) => w.id === workspace)) {
       await ctx.backend.closeWorkspace(workspace);

@@ -9,7 +9,10 @@ import { join, relative } from "node:path";
 const CORE = join(import.meta.dir, "..", "..", "src", "core");
 
 const FORBIDDEN: Array<[string, RegExp]> = [
-  ["import of src/radiant", /from\s+["'][^"']*\/radiant\//],
+  // Any module specifier that reaches the integration: `from`, side-effect
+  // and dynamic imports, and require.
+  ["module path into src/radiant", /["'`](?:\.\.?\/)+(?:[^"'`\n]*\/)?radiant(?:\/[^"'`\n]*)?["'`]/],
+  ["src/radiant", /src\/radiant/],
   [".radiant", /\.radiant\b/],
   ["radiant-units", /radiant-units/],
   ["check_project", /check_project/],

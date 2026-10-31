@@ -41,6 +41,7 @@ export type TaskView = {
   agent_name: string;
   request_sent: TaskRecord["request_sent"];
   created: Created[];
+  provenance: Record<string, string>;
   created_at: string | null;
   updated_at: string | null;
   collected?: { content: string; path: string; digest: string; digest_changed: boolean };
@@ -146,6 +147,7 @@ export function view(record: TaskRecord, snapshot: Snapshot | null, options: { i
     agent_name: record.agent_name,
     request_sent: record.request_sent,
     created: record.created,
+    provenance: record.provenance,
     created_at: first?.at ?? null,
     updated_at: last?.at ?? null,
   };
@@ -158,40 +160,74 @@ export function transition(registry: Registry, record: TaskRecord, lifecycle: Ta
   trace?.(`wrote:${lifecycle}`);
 }
 
+// The workspace label the launch used. A recovery looks a workspace up by it
+// only when its ID was never recorded.
+export function workspaceLabel(record: TaskRecord): string {
+  return record.id;
+}
+
 // Spec 2.3: a command that holds the lock and talks to the backend finds a
-// task in `recorded` or `launching` only if its dispatch was interrupted. It
-// records the recovery and never relaunches or resends.
-export function recover(registry: Registry, snapshot: Snapshot, project: Project, env: Env, trace?: (event: string) => void): void {
-  for (const record of registry.list()) {
+// task in `recorded` or `launching` only if its dispatch was interrupted.
+// The recovery is computed here in memory and written by `publish` only
+// when the command goes on to act; a refusal leaves every task file as it
+// was (Spec 5). Nothing is relaunched or resent.
+export type Recovery = { records: TaskRecord[]; recovered: TaskRecord[]; publish: () => void };
+
+export function planRecovery(registry: Registry, snapshot: Snapshot, project: Project, env: Env, trace?: (event: string) => void): Recovery {
+  const records = registry.list();
+  const recovered: TaskRecord[] = [];
+  for (const record of records) {
     if (record.lifecycle !== "recorded" && record.lifecycle !== "launching") continue;
     const from = record.lifecycle;
+    recovered.push(record);
     if (from === "recorded") {
       record.created = [];
-      transition(registry, record, "launch-failed", { reason: "interrupted", from }, trace);
+      record.lifecycle = "launch-failed";
+      record.history.push(entry("launch-failed", { reason: "interrupted", from }));
       continue;
     }
     const found: Created[] = [];
     if (gitOk(project.mainCheckout, ["show-ref", "--verify", "--quiet", `refs/heads/${record.branch}`], env) && existsSync(record.worktree)) {
       found.push({ kind: "worktree", path: record.worktree, branch: record.branch });
     }
-    const workspace = snapshot.workspaces.find((w) => w.label === record.id);
+    const known = record.backend_ids.workspace;
+    const workspace = known !== null
+      ? snapshot.workspaces.find((w) => w.id === known)
+      : snapshot.workspaces.find((w) => w.label === workspaceLabel(record));
     if (workspace !== undefined) {
-      found.push({ kind: "workspace", id: workspace.id });
       record.backend_ids.workspace = workspace.id;
+      found.push({ kind: "workspace", id: workspace.id });
+      if (workspace.tab !== null) {
+        record.backend_ids.tab = workspace.tab;
+        found.push({ kind: "tab", id: workspace.tab });
+      }
+      if (workspace.pane !== null) {
+        record.backend_ids.pane = workspace.pane;
+        found.push({ kind: "pane", id: workspace.pane });
+      }
     }
     const agent = snapshot.agents.find((a) => a.name === record.agent_name);
-    if (agent !== undefined) {
-      found.push({ kind: "agent", name: agent.name });
-      record.backend_ids.pane = agent.pane;
-    }
+    if (agent !== undefined) found.push({ kind: "agent", name: agent.name });
     record.created = found;
     if (agent !== undefined) {
       record.request_sent = record.send_started_at !== null ? "unknown" : false;
-      transition(registry, record, "launched", { reason: "interrupted", from, request_sent: record.request_sent }, trace);
+      record.lifecycle = "launched";
+      record.history.push(entry("launched", { reason: "interrupted", from, request_sent: record.request_sent }));
     } else {
-      transition(registry, record, "launch-failed", { reason: "interrupted", from }, trace);
+      record.lifecycle = "launch-failed";
+      record.history.push(entry("launch-failed", { reason: "interrupted", from }));
     }
   }
+  return {
+    records,
+    recovered,
+    publish: () => {
+      for (const record of recovered) {
+        registry.write(record);
+        trace?.(`wrote:recovered:${record.id}`);
+      }
+    },
+  };
 }
 
 export function notFound(command: string, id: string): Outcome {

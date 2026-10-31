@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { collect } from "../../../src/core/commands/collect.ts";
 import { close } from "../../../src/core/commands/close.ts";
 import { dispatch } from "../../../src/core/commands/dispatch.ts";
+import { resume } from "../../../src/core/commands/resume.ts";
 import { FakeBackend } from "../../../src/core/fake-backend.ts";
 import type { Env } from "../../../src/core/env.ts";
 
@@ -16,7 +17,7 @@ type Args = {
   env: Env;
   stateFile: string;
   barrier: string;
-  command: "dispatch" | "collect" | "close";
+  command: "dispatch" | "collect" | "close" | "resume";
   input: unknown;
   holdOn?: string;
   killOn?: string;
@@ -43,6 +44,8 @@ const outcome =
     ? await dispatch({ task: args.input, humanApproved: false }, ctx)
     : args.command === "collect"
       ? await collect(args.input as string, ctx)
-      : await close({ id: args.input as string, discardWorktree: false }, ctx);
+      : args.command === "resume"
+        ? await resume(args.input as string, ctx)
+        : await close({ id: args.input as string, discardWorktree: false }, ctx);
 appendFileSync(events, `exit:${outcome.code}\n`);
 writeFileSync(join(args.barrier, `${args.name}.result.json`), JSON.stringify(outcome));

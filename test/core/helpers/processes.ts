@@ -31,7 +31,7 @@ export function barrierDir(sb: Sandbox): string {
   return dir;
 }
 
-export function spawnChild(sb: Sandbox, stateFile: string, options: { name: string; command: "dispatch" | "collect" | "close"; input: unknown; holdOn?: string; killOn?: string; lockTimeoutMs?: number }): Child {
+export function spawnChild(sb: Sandbox, stateFile: string, options: { name: string; command: "dispatch" | "collect" | "close" | "resume"; input: unknown; holdOn?: string; killOn?: string; lockTimeoutMs?: number }): Child {
   const barrier = barrierDir(sb);
   const args = { ...options, cwd: sb.repo, env: sb.env, stateFile, barrier };
   const proc = Bun.spawn([process.execPath, CHILD, JSON.stringify(args)], { stdout: "pipe", stderr: "pipe", env: { ...sb.env } as Record<string, string> });

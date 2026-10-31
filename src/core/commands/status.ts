@@ -18,31 +18,39 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
   const session = open(C, ctx);
   if (isOutcome(session)) return session;
   const { registry } = session;
-  const all = registry.list();
   let records: TaskRecord[];
   if (input.ids.length > 0) {
     records = [];
     for (const id of input.ids) {
-      const record = all.find((r) => r.id === id);
-      if (record === undefined) return notFound(C, id);
+      const record = registry.read(id);
+      if (record === null) return notFound(C, id);
       records.push(record);
     }
   } else {
+    const all = registry.list();
     records = input.all ? all : all.filter((r) => r.lifecycle !== "closed");
   }
   const probe = await reachBackend(C, ctx.backend);
   if (!isProbe(probe)) return probe;
   const snapshot = await ctx.backend.snapshot();
 
-  let lockFree = false;
-  if (records.some((r) => r.lifecycle === "recorded" || r.lifecycle === "launching")) {
+  // A dispatch may have finished while this command read the backend. With
+  // the lock free, the half-done tasks are read again before being called
+  // interrupted; with the lock busy they are shown as they are.
+  const halfDone = (r: TaskRecord) => r.lifecycle === "recorded" || r.lifecycle === "launching";
+  const interrupted = new Set<string>();
+  if (records.some(halfDone)) {
     registry.ensure();
     const probeLock = ProjectLock.tryAcquire(registry.lockPath);
     if (probeLock !== null) {
-      lockFree = true;
-      probeLock.release();
+      try {
+        records = records.map((r) => (halfDone(r) ? (registry.read(r.id) ?? r) : r));
+        for (const r of records) if (halfDone(r)) interrupted.add(r.id);
+      } finally {
+        probeLock.release();
+      }
     }
   }
-  const tasks = records.map((r) => view(r, snapshot, { interrupted: lockFree && (r.lifecycle === "recorded" || r.lifecycle === "launching") }));
+  const tasks = records.map((r) => view(r, snapshot, { interrupted: interrupted.has(r.id) }));
   return done(C, tasks.some(attention) ? 1 : 0, tasks);
 }

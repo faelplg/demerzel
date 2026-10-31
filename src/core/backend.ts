@@ -15,7 +15,9 @@ export type SnapshotAgentStatus = "working" | "blocked" | "idle" | "done" | "unk
 
 export type Snapshot = {
   agents: Array<{ name: string; status: SnapshotAgentStatus; pane: string }>;
-  workspaces: Array<{ id: string; label: string }>;
+  // Each workspace with its root tab and pane, so a recovery can list every
+  // resource that exists even when the IDs were never recorded.
+  workspaces: Array<{ id: string; label: string; tab: string | null; pane: string | null }>;
 };
 
 export type LaunchPlan = {
