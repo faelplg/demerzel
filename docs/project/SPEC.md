@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.4, 2026-10-31
+Revisão da Spec: 0.6, 2026-10-31
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -35,13 +35,13 @@ nada do checkout Radiant.
 
 ```ts
 type Task = {
-  id: string;            // ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$, único no projeto
+  id: string;            // ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$, nunca reutilizado no projeto
   harness: string;       // chave do backend: "claude-code" | "codex"
   model: string;         // ID completo, nunca alias
   effort?: string;       // registrado; omitido do lançamento se o harness não aceitar
   branch: string;        // nome completo, já com prefixo; validado por git check-ref-format
   base?: string;         // ref; ausente usa o branch atual do checkout chamador
-  writes: string[];      // paths relativos normalizados, para a checagem de sobreposição
+  writes: string[];      // paths relativos normalizados, ver abaixo
   dependsOn: string[];   // IDs de tarefas do mesmo projeto
   request: Request;      // ver 2.2
   returnPath: string;    // path relativo dentro do worktree
@@ -52,6 +52,19 @@ type Task = {
 
 A integração preenche `provenance` com revisão e raiz do Radiant, path do
 contrato e ID da regra. O núcleo só grava e devolve esses campos.
+
+`writes`: cada path é relativo à raiz do projeto, separado por `/`, sem `/`
+inicial, sem segmento vazio, `.` ou `..`; uma `/` final só marca diretório e
+não muda a comparação. Fora disso é `task-invalid`. Dois paths se sobrepõem
+quando os segmentos de um são prefixo dos segmentos do outro, iguais
+inclusive: `src/` sobrepõe `src/a.ts` e `src`, mas não `src-old/`. A
+comparação é byte a byte, com diferença de caixa, e não resolve symlinks:
+`writes` declara intenção, e um alias por symlink ou por caixa não é
+detectado. Lista vazia não sobrepõe nada.
+
+O ID nunca é reutilizado: qualquer ID já registrado, inclusive `closed`, é
+`task-exists`. Repetir uma unidade que falhou é uma unidade nova, com outro
+ID, porque o branch da tentativa anterior continua existindo.
 
 ### 2.2 Pedido
 
@@ -83,13 +96,43 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   o mesmo registro.
 - Dentro do projeto: `tasks/<id>.json`, um arquivo por tarefa, gravado por
   arquivo temporário e rename; `worktrees/<id>/`, os worktrees criados; e
-  `lock`, que serializa `dispatch`, `resume` e `close`.
+  `lock`.
+- O lock serializa todo comando que grava no registro: `dispatch`, `resume`,
+  `collect` e `close`. `status` e `wait` só leem e não o pegam; como cada
+  arquivo de tarefa é trocado por rename, eles nunca leem um arquivo pela
+  metade.
+- O lock é um `flock(LOCK_EX)` do sistema operacional no arquivo `lock`,
+  pedido sem bloquear e repetido em intervalo curto por até 30 s. O kernel
+  solta o lock quando o processo termina, de qualquer jeito, então não existe
+  lock abandonado nem retomada. O Bun chega ao `flock` da libc por
+  `bun:ffi`, sem dependência. Esgotado o tempo, a recusa é `project-locked`.
+  O comando grava no arquivo o próprio pid e horário só para diagnóstico; a
+  exclusão não depende desse conteúdo.
+- Quem tem o lock só solta depois de gravar o último estado do comando.
+  Um `dispatch` segura o lock de `recorded` até `launched` ou
+  `launch-failed`, inclusive durante o envio.
 - Cada tarefa registra: a tarefa recebida, o pedido final, harness, modelo,
   esforço aplicado ou omitido, base (ref e commit), branch, path do worktree,
   IDs no backend (workspace, aba, pane, nome do agente), `provenance`, ciclo de
   vida, recursos criados e o histórico de transições com horários.
 - A decisão de roteamento é gravada antes do primeiro efeito e nunca é relida
   para decidir de novo.
+- Ordem das gravações no `dispatch`: `recorded` com a decisão; `launching`
+  antes do primeiro efeito; cada recurso entra em `created` logo depois de
+  criado; `send_started_at` antes do envio; `launched` com o desfecho do
+  envio. Cada gravação termina antes do passo seguinte começar.
+- Recuperação: um comando que pega o lock e encontra tarefa em `recorded` ou
+  `launching` sabe que o `dispatch` dela foi interrompido, porque o dono
+  daquele `dispatch` teria o lock. Antes de agir, ele grava a recuperação e o
+  motivo `interrupted` no histórico:
+  - `recorded`: `launch-failed` com `created` vazio, porque nenhum efeito
+    começou;
+  - `launching`: confere no Git e no snapshot o branch, o worktree, o
+    workspace pelo label e o agente pelo nome, e grava em `created` o que
+    existe. Com o agente vivo, a tarefa vai para `launched`, com
+    `request_sent: unknown` se `send_started_at` foi gravado e `false` se não;
+    sem agente, para `launch-failed`;
+  - nada é relançado nem reenviado sozinho.
 
 Ciclo de vida gravado:
 
@@ -103,18 +146,21 @@ Ciclo de vida gravado:
 | `closed` | Encerrado por `close` |
 
 Estado observado, calculado a cada comando para tarefas `launched` ou
-`collected`, sem gravar julgamento:
+`collected`, sem gravar julgamento. São dois campos independentes, porque o
+agente pode gravar o retorno e continuar trabalhando:
 
-| Estado | Origem |
-| --- | --- |
-| `working` | herdr `working` |
-| `blocked` | herdr `blocked`: prompt de permissão, confiança ou pergunta |
-| `idle` | herdr `idle` ou `done` sem arquivo de retorno |
-| `reported` | arquivo de retorno presente |
-| `unknown` | herdr `unknown` |
-| `lost` | pane ausente no snapshot; nunca relançado sozinho |
+| Campo | Valores | Origem |
+| --- | --- | --- |
+| `agent` | `working` | herdr `working` |
+| | `blocked` | herdr `blocked`: prompt de permissão, confiança ou pergunta |
+| | `idle` | herdr `idle` ou `done` |
+| | `unknown` | herdr `unknown` |
+| | `lost` | pane ausente no snapshot; nunca relançado sozinho |
+| `report` | `present`, `absent` | arquivo de retorno no worktree |
 
-Todo comando reconcilia o registro com `herdr api snapshot` antes de agir.
+Todo comando que fala com o backend reconcilia o registro com
+`herdr api snapshot` antes de agir. `collect` não fala com o backend: lê só o
+arquivo e devolve `agent: null`.
 
 ### 2.4 Configuração
 
@@ -286,7 +332,7 @@ Envelope `--json`:
 {
   "ok": true,
   "command": "status",
-  "tasks": [{ "id": "TC-0025.1", "lifecycle": "launched", "state": "working" }],
+  "tasks": [{ "id": "TC-0025.1", "lifecycle": "launched", "agent": "working", "report": "absent" }],
   "refusal": null
 }
 ```
@@ -295,11 +341,23 @@ Cada tarefa traz também branch, base, worktree, IDs no herdr, harness, modelo,
 esforço, `request_sent` e horários. Numa recusa, `"ok": false` e
 `"refusal": { "code": "<código>", "message": "<o que houve>", "next": "<o que fazer>", "hold": false }`.
 
+Matriz dos comandos que recebem ID. Toda linha também recusa ID sem tarefa
+com `task-not-found`, e os comandos que falam com o backend recusam herdr
+parado com `backend-unavailable`.
+
+| Comando | Aceita | Recusa, sem efeito |
+| --- | --- | --- |
+| `resume` | `launched` com `request_sent: false` | outro ciclo de vida: `wrong-lifecycle`; `request_sent` `true` ou `unknown`: `request-already-sent`; agente `lost`: `task-lost` |
+| `status` | qualquer ciclo de vida | nenhuma além das comuns |
+| `wait` | `launched` e `collected` | outro ciclo de vida: `wrong-lifecycle` |
+| `collect` | `launched` e `collected`; não fala com o backend | outro ciclo de vida: `wrong-lifecycle` |
+| `close` | `launched`, `collected` e `launch-failed`; `closed` só com `--discard-worktree` e worktree ainda presente, para repetir o descarte | agente `working`, com ou sem retorno: `task-working`; `closed` sem descarte pendente: `wrong-lifecycle` |
+
 ### `demerzel dispatch <unit-id> [--rule <id>] [--base <ref>] [--human-approved] [--json]`
 
 Todas as verificações da seção 5 rodam antes do primeiro efeito, sob o lock do
-projeto. Depois, grava `recorded`, cria worktree e sessão, inicia o agente e
-envia o pedido.
+projeto. Depois, grava e executa na ordem da seção 2.3: `recorded`,
+`launching`, worktree e sessão, agente, envio e `launched`.
 
 - `0`: agente iniciado e pedido enviado; devolve a tarefa gravada.
 - `1`: `launch-failed` (com `created`), agente bloqueado no startup
@@ -314,8 +372,7 @@ pedido: o texto já está no registro e não é montado de novo.
 
 - `0`: pedido enviado.
 - `1`: agente ainda `blocked` ou envio sem confirmação.
-- `2`: ID desconhecido, pedido já enviado ou com `request_sent: unknown`, ou
-  herdr indisponível.
+- `2`: recusa da matriz acima.
 
 ### `demerzel status [<id>...] [--all] [--json]`
 
@@ -323,48 +380,54 @@ Sem IDs, lista as tarefas que não estão `closed`; `--all` inclui as
 `closed`.
 
 - `0`: leitura feita e nenhuma tarefa pede atenção.
-- `1`: alguma tarefa em `blocked`, `idle`, `unknown`, `lost` ou
-  `launch-failed`.
-- `2`: ID desconhecido ou herdr indisponível.
+- `1`: alguma tarefa `launch-failed`, ou `launched` ou `collected` com
+  agente `blocked`, `unknown` ou `lost`, ou com agente `idle` e retorno
+  `absent`.
+- `2`: recusa da matriz acima.
 
 ### `demerzel wait <id>... [--timeout <ms>] [--json]`
 
-Volta quando cada tarefa chega a `reported`, `blocked`, `idle`, `lost` ou
-`unknown`, ou quando o timeout expira. Sem timeout, espera indefinidamente.
+Volta quando cada tarefa tem retorno `present` ou agente `blocked`, `idle`,
+`lost` ou `unknown`, ou quando o timeout expira. Sem timeout, espera
+indefinidamente. Um retorno presente com o agente ainda `working` também
+conta: o orquestrador pode coletar enquanto o agente termina.
 
-- `0`: todas `reported`.
-- `1`: alguma parou em outro estado ou o timeout expirou.
-- `2`: ID desconhecido, tarefa que não está `launched`, ou herdr
-  indisponível.
+- `0`: todas com retorno `present`.
+- `1`: alguma parou sem retorno ou o timeout expirou.
+- `2`: recusa da matriz acima.
 
 ### `demerzel collect <id> [--json]`
 
 Lê o retorno em `<worktree>/<returnPath>` e devolve conteúdo, path, digest
 sha256, branch, base e worktree, para o orquestrador fazer readback e aceite.
 Não interpreta o conteúdo. Grava `collected` com o digest; coletar de novo
-devolve o conteúdo atual e registra se o digest mudou.
+devolve o conteúdo atual e registra se o digest mudou. Pega o lock, porque
+grava no registro.
 
 - `0`: retorno lido.
 - `1`: retorno ausente.
-- `2`: ID desconhecido.
+- `2`: recusa da matriz acima.
 
 ### `demerzel close <id> [--discard-worktree] [--json]`
 
-Fecha o workspace do herdr e grava `closed`. Nunca apaga o branch. Com
-`--discard-worktree`, flag reservada ao humano, também remove o worktree com
-`git worktree remove`, sem `--force`, nos dois harnesses.
+Fecha o workspace do herdr, se ele ainda está no snapshot, e grava `closed`.
+Nunca apaga o branch. Com `--discard-worktree`, flag reservada ao humano,
+também remove o worktree com `git worktree remove`, sem `--force`, nos dois
+harnesses. Numa tarefa já `closed`, só repete esse descarte e não fala com o
+backend.
 
 - `0`: fechado, e o worktree removido quando pedido.
 - `1`: fechado, mas o Git recusou remover o worktree, por exemplo por
   alterações ou arquivos não rastreados; a mensagem traz o motivo e o
   worktree fica.
-- `2`: ID desconhecido, ou tarefa em `working`, porque fechar mataria
-  trabalho em curso.
+- `2`: recusa da matriz acima. `task-working` vale mesmo com o retorno
+  presente, porque fechar mataria trabalho em curso.
 
 ## 5. Recusas
 
-Todas saem com `2` e não criam nada: nenhum arquivo de registro, branch,
-worktree, workspace ou chamada de efeito no backend.
+Todas saem com `2` e não criam nem mudam nada: nenhum arquivo de tarefa,
+branch, worktree, workspace ou chamada de efeito no backend. O arquivo `lock`
+pode existir de um comando anterior e não conta como efeito.
 
 | Recusa da seção 4 do ADR-0002 | Código | Quem verifica |
 | --- | --- | --- |
@@ -401,8 +464,14 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | Contrato ausente ou ambíguo no commit base | `contract-not-found` | Integração |
 | `routing.json` ausente ou inválido, ou regra inexistente | `routing-invalid` | Integração |
 | Tarefa ou pedido fora do formato | `task-invalid` | Núcleo |
-| ID já registrado e não `closed` | `task-exists` | Núcleo |
+| ID já registrado, em qualquer ciclo de vida | `task-exists` | Núcleo |
 | Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
+| Lock do projeto ocupado por outro processo por mais de 30 s | `project-locked` | Núcleo |
+| ID sem tarefa no registro | `task-not-found` | Núcleo |
+| Ciclo de vida que o comando não aceita (matriz da seção 4) | `wrong-lifecycle` | Núcleo |
+| `resume` com pedido já enviado ou `request_sent: unknown` | `request-already-sent` | Núcleo |
+| `resume` com agente `lost` | `task-lost` | Núcleo |
+| `close` com agente `working` | `task-working` | Núcleo |
 
 ## 6. Segurança e egress
 
@@ -438,11 +507,16 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    arquivo de registro, sem branch).
 4. **Pedido.** Um contrato de fixture com marcadores únicos prova que nenhum
    deles aparece no pedido gravado ou enviado.
-5. **Registro.** Transições, reconciliação para `lost`, `launch-failed` com
-   `created`, `request_sent` em cada desfecho de envio, dois `dispatch`
-   concorrentes serializados pelo lock, nomes de agente distintos para IDs que
-   só diferem em caixa ou pontuação, e `wait` voltando quando o retorno aparece
-   com o agente ainda `working` e quando o estado passa a `unknown`.
+5. **Registro.** Transições e cada linha da matriz da seção 4,
+   reconciliação para `lost`, `launch-failed` com `created`, `request_sent`
+   em cada desfecho de envio, comandos que gravam serializados pelo lock
+   entre processos, inclusive `collect` contra `close`, lock solto quando o
+   dono é morto, recuperação de `dispatch` interrompido em cada ponto da
+   ordem de gravação, sobreposição de `writes` com os exemplos da seção 2.1,
+   nomes de agente distintos para IDs que só diferem em caixa ou pontuação,
+   `wait` voltando quando o retorno aparece com o agente ainda `working` e
+   quando o agente passa a `unknown`, e `close` recusado nesse mesmo cenário
+   de retorno presente com agente `working`.
 6. **Integração Radiant.** Consumidor de fixture contra o checkout Radiant no
    pin: localização do contrato no commit base, recusa de base com pin
    diferente do checkout validado, validação por `check_dispatch.py`,
@@ -512,3 +586,18 @@ Valem quando o owner aprovar o PR desta revisão:
 | Confiança | Pré-requisito do owner, uma vez por projeto em cada CLI; sai `trusted_repositories` e o backend nunca passa `--trust-repository` |
 | Descarte do worktree | `git worktree remove` sem `--force`, igual nos dois harnesses; recusa do Git sai com `1` e mantém o worktree |
 | Lançamento do Claude Code | Pós-condição de cwd, branch e commit base; se falha, `launch-failed` |
+
+Revisões 0.5 e 0.6, 2026-10-31, ao preparar o contrato do núcleo (TC-0001)
+e depois da crítica dele pelo Codex em `gpt-6-astra`, papel `radiant-grill`:
+doze objeções, todas aceitas pelo owner. Valem quando o owner aprovar o PR do
+contrato:
+
+| Questão | Decisão |
+| --- | --- |
+| Lock do projeto | `flock` do sistema operacional por `bun:ffi`, espera de até 30 s, depois `project-locked`; o kernel solta o lock de processo encerrado. Substitui o lock com pid e retomada da revisão 0.5 |
+| Quem pega o lock | Todo comando que grava: `dispatch`, `resume`, `collect` e `close` |
+| `dispatch` interrompido | Ordem fixa de gravações e recuperação conservadora por quem pega o lock depois, sem relançar nem reenviar |
+| Estado observado | Dois campos, `agent` e `report`; `close` recusa agente `working` mesmo com retorno presente |
+| Comandos por ciclo de vida | Matriz da seção 4, com `task-not-found`, `wrong-lifecycle`, `request-already-sent`, `task-lost` e `task-working` |
+| Reuso de ID | Nunca; `task-exists` para qualquer ID registrado |
+| Sobreposição de `writes` | Por segmentos, com diferença de caixa e sem resolver symlinks |
