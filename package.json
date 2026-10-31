@@ -13,7 +13,7 @@
     "test": "bun test",
     "test:core": "bun test/core/run-without-python.ts",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun run test:core && bun test test/cli.test.ts"
+    "check": "bun run typecheck && bun run test:core && bun test test/herdr test/cli.test.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

@@ -1,0 +1,245 @@
+import { existsSync, realpathSync } from "node:fs";
+import { BackendError, type Backend, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus } from "../core/backend.ts";
+import type { Env } from "../core/env.ts";
+import { git } from "../core/git.ts";
+import type { BackendIds, Created } from "../core/types.ts";
+import type { HerdrConfig } from "./config.ts";
+import { field, Herdr, text } from "./run.ts";
+
+// The herdr implementation of the core backend (Spec 2.5, revision 0.9).
+
+const MINIMUM = "0.9.0";
+
+// Spec 2.5: only effort levels already checked on the installed CLI.
+const KIND: Record<string, string> = { "claude-code": "claude", codex: "codex" };
+const EFFORT: Record<string, readonly string[]> = {
+  "claude-code": ["low", "medium", "high", "xhigh", "max"],
+  codex: ["minimal", "low", "medium", "high", "xhigh"],
+};
+const AGENT_STATUS = new Set<SnapshotAgentStatus>(["working", "blocked", "idle", "done", "unknown"]);
+
+export type HerdrOptions = {
+  startTimeoutMs?: number;
+  promptTimeoutMs?: number;
+  // How long the Claude Code postcondition waits for the agent's cwd.
+  postconditionWaitMs?: number;
+};
+
+export function shQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export function versionAtLeast(version: string, minimum: string): boolean {
+  const parse = (v: string) => v.split(/[.-]/).slice(0, 3).map((n) => Number.parseInt(n, 10));
+  const a = parse(version);
+  const b = parse(minimum);
+  for (let i = 0; i < 3; i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (Number.isNaN(x)) return false;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
+// Spec 2.5: the WorktreeCreate hook runs git worktree add with Git's output
+// on stderr and prints only the path on stdout.
+export function hookSettings(plan: LaunchPlan): string {
+  const command = [
+    "git", "-C", shQuote(plan.mainCheckout), "worktree", "add", "-b", shQuote(plan.branch), shQuote(plan.worktreePath), shQuote(plan.baseCommit),
+  ].join(" ");
+  const hook = `${command} >&2 && printf '%s\\n' ${shQuote(plan.worktreePath)}`;
+  return JSON.stringify({ hooks: { WorktreeCreate: [{ hooks: [{ type: "command", command: hook }] }] } });
+}
+
+function sameDir(a: string | null, b: string): boolean {
+  if (a === null || !existsSync(a) || !existsSync(b)) return false;
+  return realpathSync(a) === realpathSync(b);
+}
+
+export class HerdrBackend implements Backend {
+  private herdr: Herdr;
+
+  constructor(
+    private env: Env,
+    config: HerdrConfig,
+    private options: HerdrOptions = {},
+  ) {
+    this.herdr = new Herdr(env, config.session);
+  }
+
+  supportsHarness(harness: string): boolean {
+    return harness in KIND;
+  }
+
+  async probe(): Promise<Probe> {
+    const down = (detail: string): Probe => ({ running: false, compatible: false, versionOk: false, version: null, minimum: MINIMUM, detail });
+    let proc;
+    try {
+      proc = Bun.spawnSync(["herdr", ...this.herdr.args(["status", "--json"])], { env: { ...this.env }, stdout: "pipe", stderr: "pipe" });
+    } catch (error) {
+      return down(`herdr não encontrado no PATH: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(proc.stdout.toString());
+    } catch {
+      return down(`herdr status --json não devolveu JSON (saída ${proc.exitCode ?? "?"})`);
+    }
+    const running = field(data, "server", "running") === true;
+    const compatible = field(data, "server", "compatible") === true;
+    const version = text(data, "server", "version");
+    if (!running) return { ...down(`servidor do herdr parado${text(data, "server", "session") ? ` na sessão ${text(data, "server", "session")}` : ""}`), version };
+    return { running, compatible, versionOk: version !== null && versionAtLeast(version, MINIMUM), version, minimum: MINIMUM, detail: compatible ? null : "cliente e servidor do herdr incompatíveis" };
+  }
+
+  async snapshot(): Promise<Snapshot> {
+    const reply = this.herdr.run(["api", "snapshot"]);
+    if (!reply.ok) throw new BackendError("herdr api snapshot", `${reply.code}: ${reply.message}`);
+    const snap = field(reply.result, "snapshot");
+    const list = (key: string): Record<string, unknown>[] => {
+      const value = field(snap, key);
+      if (!Array.isArray(value)) throw new BackendError("herdr api snapshot", `snapshot sem a lista ${key}`);
+      return value as Record<string, unknown>[];
+    };
+    const agents = list("agents").flatMap((a) => {
+      const name = text(a, "name");
+      const pane = text(a, "pane_id");
+      if (name === null || name === "" || pane === null) return [];
+      const raw = text(a, "agent_status") ?? "unknown";
+      const status = AGENT_STATUS.has(raw as SnapshotAgentStatus) ? (raw as SnapshotAgentStatus) : "unknown";
+      return [{ name, status, pane }];
+    });
+    const tabs = list("tabs");
+    const panes = list("panes");
+    const workspaces = list("workspaces").map((w) => {
+      const id = text(w, "workspace_id") ?? "";
+      const own = tabs.filter((t) => text(t, "workspace_id") === id).sort((x, y) => Number(field(x, "number") ?? 0) - Number(field(y, "number") ?? 0));
+      const tab = own.length > 0 ? text(own[0], "tab_id") : null;
+      const pane = tab === null ? null : (panes.map((p) => (text(p, "tab_id") === tab ? text(p, "pane_id") : null)).find((p) => p !== null) ?? null);
+      return { id, label: text(w, "label") ?? "", tab, pane };
+    });
+    return { agents, workspaces };
+  }
+
+  prepare(plan: LaunchPlan): Preparation {
+    const allowed = EFFORT[plan.harness] ?? [];
+    const effort =
+      plan.effort === null
+        ? { applied: null, omittedReason: null }
+        : allowed.includes(plan.effort)
+          ? { applied: plan.effort, omittedReason: null }
+          : { applied: null, omittedReason: `nível ${plan.effort} não conferido para ${plan.harness}; conferidos: ${allowed.join(", ")}` };
+    const data: Record<string, unknown> = plan.harness === "claude-code" ? { worktreeName: plan.agentName, settings: hookSettings(plan) } : {};
+    return { effort, data };
+  }
+
+  private modelArgs(plan: LaunchPlan, preparation: Preparation): string[] {
+    const effort = preparation.effort.applied;
+    if (plan.harness === "codex") return ["--model", plan.model, ...(effort === null ? [] : ["-c", `model_reasoning_effort=${effort}`])];
+    return ["--model", plan.model, ...(effort === null ? [] : ["--effort", effort])];
+  }
+
+  private session(result: Record<string, unknown>, ids: BackendIds, onCreated: (resource: Created) => void): string | null {
+    const workspace = text(result, "workspace", "workspace_id");
+    const tab = text(result, "tab", "tab_id") ?? text(result, "root_pane", "tab_id");
+    const pane = text(result, "root_pane", "pane_id");
+    if (workspace !== null) {
+      ids.workspace = workspace;
+      onCreated({ kind: "workspace", id: workspace });
+    }
+    if (tab !== null) {
+      ids.tab = tab;
+      onCreated({ kind: "tab", id: tab });
+    }
+    if (pane !== null) {
+      ids.pane = pane;
+      onCreated({ kind: "pane", id: pane });
+    }
+    return pane;
+  }
+
+  async launch(plan: LaunchPlan, preparation: Preparation, onCreated: (resource: Created) => void): Promise<LaunchOutcome> {
+    const ids: BackendIds = { workspace: null, tab: null, pane: null };
+    const failed = (reason: string): LaunchOutcome => ({ kind: "failed", reason, ids });
+    const kind = KIND[plan.harness];
+    if (kind === undefined) return failed(`harness sem lançamento no backend herdr: ${plan.harness}`);
+    const startTimeout = String(this.options.startTimeoutMs ?? 90_000);
+
+    if (plan.harness === "codex") {
+      const created = this.herdr.run([
+        "worktree", "create", "--cwd", plan.mainCheckout, "--branch", plan.branch, "--base", plan.baseCommit, "--path", plan.worktreePath, "--label", plan.label, "--no-focus",
+      ]);
+      if (!created.ok) return failed(`herdr worktree create: ${created.code}: ${created.message}`);
+      onCreated({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
+      const pane = this.session(created.result, ids, onCreated);
+      if (pane === null) return failed("herdr worktree create: resposta sem root_pane");
+      const started = this.herdr.run(["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
+      if (started.ok) {
+        onCreated({ kind: "agent", name: plan.agentName });
+        return { kind: "ready", ids };
+      }
+      if (started.code === "agent_not_ready") {
+        onCreated({ kind: "agent", name: plan.agentName });
+        return { kind: "blocked", ids };
+      }
+      return failed(`herdr agent start: ${started.code}: ${started.message}`);
+    }
+
+    // Claude Code: the session opens at the project root and Claude Code
+    // creates the worktree through the WorktreeCreate hook.
+    const settings = preparation.data["settings"];
+    const worktreeName = preparation.data["worktreeName"];
+    if (typeof settings !== "string" || typeof worktreeName !== "string") return failed("preparo do Claude Code sem settings ou nome de worktree");
+    if (/[\n\r]/.test(plan.worktreePath) || /[\n\r]/.test(plan.mainCheckout)) return failed("path com quebra de linha não cabe no protocolo do hook WorktreeCreate");
+    const created = this.herdr.run(["workspace", "create", "--cwd", plan.mainCheckout, "--label", plan.label, "--no-focus"]);
+    if (!created.ok) return failed(`herdr workspace create: ${created.code}: ${created.message}`);
+    const pane = this.session(created.result, ids, onCreated);
+    if (pane === null) return failed("herdr workspace create: resposta sem root_pane");
+    const started = this.herdr.run([
+      "agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", "--worktree", worktreeName, "--settings", settings, ...this.modelArgs(plan, preparation),
+    ]);
+    const blocked = !started.ok && started.code === "agent_not_ready";
+    if (!started.ok && !blocked) return failed(`herdr agent start: ${started.code}: ${started.message}`);
+
+    // Spec 2.5, revision 0.9: the postcondition holds also on a blocked
+    // startup, so resume never sends to a worktree nobody checked.
+    const branch = git(plan.mainCheckout, ["rev-parse", "--verify", "--quiet", `refs/heads/${plan.branch}`], this.env);
+    const worktreeExists = existsSync(plan.worktreePath) && branch.code === 0;
+    if (worktreeExists) onCreated({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
+    onCreated({ kind: "agent", name: plan.agentName });
+    const cwd = await this.agentCwd(plan.agentName, plan.worktreePath);
+    const problems: string[] = [];
+    if (!sameDir(cwd, plan.worktreePath)) problems.push(`cwd do agente ${cwd ?? "desconhecido"} não é o worktree ${plan.worktreePath}`);
+    if (branch.code !== 0) problems.push(`branch ${plan.branch} não existe`);
+    else if (branch.stdout !== plan.baseCommit) problems.push(`branch ${plan.branch} aponta para ${branch.stdout}, não para o commit base ${plan.baseCommit}`);
+    if (problems.length > 0) return failed(`pós-condição do lançamento no Claude Code: ${problems.join("; ")}`);
+    return { kind: blocked ? "blocked" : "ready", ids };
+  }
+
+  // The agent's foreground cwd, read a few times while Claude Code moves into
+  // the worktree.
+  private async agentCwd(name: string, expected: string): Promise<string | null> {
+    const deadline = Date.now() + (this.options.postconditionWaitMs ?? 3_000);
+    let cwd: string | null = null;
+    for (;;) {
+      const got = this.herdr.run(["agent", "get", name]);
+      cwd = got.ok ? text(got.result, "agent", "foreground_cwd") : null;
+      if (sameDir(cwd, expected) || Date.now() >= deadline) return cwd;
+      await Bun.sleep(200);
+    }
+  }
+
+  async send(agentName: string, requestText: string): Promise<SendOutcome> {
+    const timeout = String(this.options.promptTimeoutMs ?? 30_000);
+    const reply = this.herdr.run(["agent", "prompt", agentName, requestText, "--wait", "--until", "working", "--until", "blocked", "--timeout", timeout]);
+    if (reply.ok) return "sent";
+    if (reply.code === "agent_not_ready" || reply.code === "agent_blocked") return "not-ready";
+    return "unknown";
+  }
+
+  async closeWorkspace(workspaceId: string): Promise<void> {
+    const reply = this.herdr.run(["workspace", "close", workspaceId]);
+    if (!reply.ok && reply.code !== "workspace_not_found") throw new BackendError("herdr workspace close", `${reply.code}: ${reply.message}`);
+  }
+}
