@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.8, 2026-10-31
+Revisão da Spec: 0.9, 2026-10-31
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -165,6 +165,18 @@ Todo comando que fala com o backend reconcilia o registro com
 `herdr api snapshot` antes de agir. `collect` não fala com o backend: lê só o
 arquivo e devolve `agent: null`.
 
+Falha do backend no meio de um comando, como o servidor caindo entre a
+sondagem e o snapshot, uma resposta que não é JSON ou um erro de transporte:
+
+- antes do primeiro efeito do comando, é a recusa `backend-unavailable`,
+  sem efeito, como uma sondagem que falha;
+- depois do primeiro efeito, o comando grava o que já sabe, segue a regra do
+  passo em que parou (por exemplo `launch-failed` com `created`, ou
+  `request_sent: unknown` num envio) e sai com `1`, com o agente observado
+  como `unknown`;
+- em todos os casos, a mensagem traz o comando do backend que falhou e o
+  resumo do erro dele, nunca o texto do pedido nem conteúdo de arquivo.
+
 ### 2.4 Configuração
 
 Um arquivo do usuário, gerado pelo dotfiles como o `routing.json` do Radiant:
@@ -259,12 +271,23 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   | `claude-code` | `claude` | `--model <id>` | `--effort <nível>` |
   | `codex` | `codex` | `--model <id>` | `-c model_reasoning_effort=<nível>` |
 
-  Os níveis aceitos por cada CLI são conferidos no Plan pelo `--help` das
-  versões instaladas. O backend nunca passa flags de permissão ou de bypass; o
-  harness lançado usa a configuração do próprio usuário.
+  O backend só passa um nível de esforço que foi conferido na versão
+  instalada do CLI e registrado no Plan; qualquer outro é omitido do
+  lançamento, com o motivo gravado em `recorded`, antes do primeiro efeito.
+  Hoje: Claude Code 2.1.286, `low`, `medium`, `high`, `xhigh` e `max`; Codex
+  0.166.0, `minimal`, `low`, `medium`, `high` e `xhigh`. O backend nunca passa
+  flags de permissão ou de bypass; o harness lançado usa a configuração do
+  próprio usuário.
 - Startup bloqueado (`agent_not_ready`) deixa a tarefa `launched`, com
   `request_sent: false`, observada como `blocked`. O pedido sai depois por
-  `resume`.
+  `resume`. No Claude Code, a pós-condição de lançamento é conferida também
+  no startup bloqueado: se cwd, branch e commit base conferem, a tarefa fica
+  `launched` e bloqueada; se não conferem, inclusive porque o hook ainda não
+  criou o worktree, vai para `launch-failed`, com `created` listando o que
+  existe. Assim o `resume` nunca envia o pedido a um worktree que não foi
+  conferido.
+- `agent_blocked` no envio, isto é, agente já bloqueado antes de receber o
+  pedido, deixa `request_sent: false`.
 - `agent_prompt_stalled` ou timeout no envio deixam `request_sent: unknown`. O
   Demerzel não reenvia sozinho, porque o pedido pode ter chegado.
 
@@ -630,3 +653,12 @@ TC-0001. Aprovada pelo owner em 2026-10-31:
 | Questão | Decisão |
 | --- | --- |
 | Label do workspace | ID da tarefa, espaço e nome do agente, único entre projetos |
+
+Revisão 0.9, 2026-10-31, depois da crítica do TC-0002 pelo Codex em
+`gpt-6.1-sol`, papel `radiant-grill`. Aprovadas pelo owner em 2026-10-31:
+
+| Questão | Decisão |
+| --- | --- |
+| Startup bloqueado do Claude Code | A pós-condição vale também no startup bloqueado: conferida, `launched` e bloqueada; não conferida, `launch-failed` |
+| Esforço não conferido | Só níveis conferidos e registrados no Plan; os outros são omitidos com motivo antes do primeiro efeito |
+| Falha do backend no meio de um comando | Antes do primeiro efeito, `backend-unavailable`; depois, grava o que sabe e sai com `1`; a mensagem traz o comando e o erro do backend |

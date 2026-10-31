@@ -1,7 +1,9 @@
 # Radiant Task Contract - Demerzel - Incremento 4, backend herdr e smoke
 
 **Contract ID:** `TC-0002`
-**Revisão do contrato:** 1, 2026-10-31
+**Revisão do contrato:** 2, 2026-10-31. A revisão 1 recebeu a crítica do
+Codex em `gpt-6.1-sol`, papel `radiant-grill`: onze objeções, todas aceitas
+pelo owner e aplicadas aqui e na Spec 0.9, antes de qualquer execução
 **Project:** `demerzel`
 **Iteration:** Plan 0.3, incremento 4
 **Status:** `READY`
@@ -33,9 +35,9 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
 **Source plan/spec:**
 
 - [Plan 0.3](../PLAN.md), incremento 4, e o ponto de parada depois dele.
-- [Spec 0.8](../SPEC.md): seção 2.4, a parte `herdr`; seção 2.5 inteira;
-  seção 4, os cinco comandos que recebem ID; seção 6; seção 7, verificações
-  7 e 8.
+- [Spec 0.9](../SPEC.md): seção 2.3, a falha do backend no meio de um
+  comando; seção 2.4, a parte `herdr`; seção 2.5 inteira; seção 4, os cinco
+  comandos que recebem ID; seção 6; seção 7, verificações 7 e 8.
 - [TC-0001](TC-0001-core.md), non-goals: o incremento 4 liga `resume`,
   `status`, `wait`, `collect` e `close` ao CLI; `dispatch` fica para o 5.
 
@@ -49,7 +51,7 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
 
 ## 3. Inputs
 
-- `docs/project/SPEC.md` (revisão 0.8) e `docs/project/PLAN.md`.
+- `docs/project/SPEC.md` (revisão 0.9) e `docs/project/PLAN.md`.
 - O núcleo do incremento 3 em `src/core/`, em especial `backend.ts`, a
   interface que este contrato implementa, e `config.ts`.
 - `docs/project/verification/2026-10-30-launch-probe.md` e
@@ -85,6 +87,8 @@ src/cli.ts
 src/cli/
 test/herdr/
 test/cli.test.ts
+src/core/               (só as mudanças do output 6)
+test/core/              (só testes novos para o output 6; os existentes não mudam)
 package.json            (só a seção scripts)
 AGENTS.md               (só a lista de comandos dentro do bloco radiant)
 docs/project/verification/
@@ -93,8 +97,6 @@ docs/project/verification/
 ### Paths read-only
 
 ```text
-src/core/
-test/core/
 docs/project/SPEC.md
 docs/project/PLAN.md
 docs/project/FRAME.md
@@ -108,8 +110,13 @@ bun.lock
 ### External systems allowed
 
 - `git` e o executável `herdr`, este só por sessões herdr isoladas que o
-  próprio teste ou script sobe e para, com nome próprio do Demerzel. Nunca a
-  sessão `lab` nem outra sessão do owner.
+  próprio teste ou script sobe e para, com nome próprio do Demerzel. O Build,
+  os testes, o cenário e o smoke nunca usam a sessão `lab` nem outra sessão do
+  owner.
+- A única exceção é do orquestrador, fora do Build: a crítica independente da
+  seção 11 roda numa aba que ele abre na sessão `lab`, com o verificador que o
+  owner escolher. Essa aba e o agente dela são do orquestrador, que os fecha
+  ou entrega ao owner no fim; nenhum teste ou script do Build depende deles.
 - `claude` e `codex` só pelo smoke da seção 11, rodado pelo orquestrador.
 - Nenhum Radiant e nenhum `python3`.
 
@@ -148,6 +155,15 @@ unidades.
    entrada, o Completion report, a evidência da seção 11, a tabela de
    rastreabilidade, as contagens de intervenção e os recursos que sobraram.
    O orquestrador acrescenta o smoke e a crítica independente.
+6. Mudanças no núcleo, só estas, cada uma com teste novo em `test/core/`:
+   - um erro de backend tipado, com o comando que falhou e o resumo do erro,
+     que o backend herdr lança em falha de transporte ou resposta inválida;
+   - os comandos do núcleo tratando esse erro pela Spec 2.3, revisão 0.9:
+     antes do primeiro efeito, a recusa `backend-unavailable` com o comando e
+     o erro na mensagem; depois do primeiro efeito, gravar o que sabe, seguir
+     a regra do passo em que parou e sair com `1`;
+   - o resumo do erro do backend na mensagem de `backend-unavailable` e de
+     `backend-version`, quando a sondagem trouxer um.
 
 Não criar artefatos adicionais sem necessidade observada.
 
@@ -157,8 +173,9 @@ Esta tarefa **não** deve:
 
 - ligar `dispatch` ao CLI nem ler `.radiant.json`, contratos, roteamento ou
   adapters (incremento 5);
-- mudar o núcleo em `src/core/`. Se a interface não comportar algo que a
-  Spec 2.5 pede, é `HOLD`;
+- mudar o núcleo em `src/core/` além do output 6, ou mudar um teste existente
+  de `test/core/`. Se a interface ainda não comportar algo que a Spec pede,
+  é `HOLD`;
 - usar a sessão `lab`, ou qualquer sessão herdr do owner, em teste ou
   script;
 - passar flags de permissão ou de bypass a qualquer harness, nem
@@ -190,8 +207,9 @@ Cada item aponta para a Spec, que continua sendo a fonte.
   `unknown` e o pane) e cada workspace com label, aba raiz e pane raiz. Um
   `agent_status` que o núcleo não conhece vira `unknown`.
 - [ ] H4. `prepare`, sem efeito: o esforço pela tabela de lançamento, omitido
-  com motivo quando o nível não está entre os conferidos no incremento 1
-  (Claude Code `low` a `max`; Codex `minimal` a `xhigh`); e, no Claude Code, o
+  com motivo quando o nível não está entre os conferidos e registrados na
+  Spec 2.5 e no Plan (Claude Code `low` a `max`; Codex `minimal` a `xhigh`);
+  e, no Claude Code, o
   JSON do `--settings` com o hook `WorktreeCreate`, cada argumento entre aspas
   simples no escape de POSIX `sh`.
 - [ ] H5. `launch` no Codex: `herdr worktree create` com branch, base, path e
@@ -205,11 +223,14 @@ Cada item aponta para a Spec, que continua sendo a fonte.
   existente e apontando para o commit base. Se não, `failed` com os recursos
   que existem.
 - [ ] H7. Startup bloqueado (`agent_not_ready`) devolve `blocked` com os IDs e
-  os recursos criados, inclusive um worktree que o hook já tenha criado.
+  os recursos criados. No Claude Code, a pós-condição de H6 também é
+  conferida nesse caso, pela Spec 2.5, revisão 0.9: conferida, `blocked`; não
+  conferida, inclusive porque o hook ainda não criou o worktree, `failed`.
 - [ ] H8. `send` com `herdr agent prompt <nome> <texto> --wait --until
-  working --until blocked --timeout <ms>`: confirmado é `sent`; agente ainda
-  bloqueado antes de receber é `not-ready`; `agent_prompt_stalled`, timeout
-  ou resposta inesperada é `unknown`.
+  working --until blocked --timeout <ms>`: confirmado é `sent`;
+  `agent_not_ready` ou `agent_blocked`, isto é, agente bloqueado antes de
+  receber, é `not-ready`; `agent_prompt_stalled`, timeout ou resposta
+  inesperada é `unknown`.
 - [ ] H9. `closeWorkspace` com `herdr workspace close`; workspace que já não
   existe não é erro.
 - [ ] H10. O backend nunca passa flags de permissão, de bypass ou
@@ -217,12 +238,21 @@ Cada item aponta para a Spec, que continua sendo a fonte.
 - [ ] H11. CLI (Spec 4): `resume <id>`, `status [<id>...] [--all]`,
   `wait <id>... [--timeout <ms>]`, `collect <id>`, `close <id>
   [--discard-worktree]`, cada um com `--json` (o envelope do núcleo, sem
-  mudança) e texto curto com ID, ciclo de vida, `agent`, `report` e, numa
-  recusa, código, mensagem e próximo passo. Códigos de saída do núcleo.
+  mudança) e texto curto com o mesmo conteúdo que importa (Spec 4). No texto,
+  toda tarefa mostra ID, ciclo de vida, `agent` e `report`, e mais: `status`,
+  `interrupted` quando verdadeiro; `resume`, `request_sent`; `collect`, path,
+  digest, se o digest mudou e o conteúdo do retorno; `close`, o resultado do
+  descarte e o motivo quando o Git recusou. Numa recusa, código, mensagem e
+  próximo passo. Códigos de saída do núcleo.
   Argumento desconhecido ou faltando é recusa com `2` e diz o uso.
   `dispatch` continua recusado com `2`.
 - [ ] H12. Recusa da configuração ou do backend no CLI sai com `2` sem efeito,
   como no núcleo.
+- [ ] H13. Falha do backend no meio de um comando segue a Spec 2.3, revisão
+  0.9, nos comandos que falam com o backend: antes do primeiro efeito,
+  `backend-unavailable` sem efeito; depois, o registro com o que se sabe e
+  saída `1`. A mensagem traz o comando do herdr e o resumo do erro, nunca o
+  texto do pedido. Nenhuma exceção sai do CLI sem envelope.
 
 ## 8. Engineering Check
 
@@ -234,8 +264,8 @@ Cada item aponta para a Spec, que continua sendo a fonte.
 | EB-04 Segurança e privacidade | REQUIRED | Escape do hook em POSIX `sh`; nenhuma flag de permissão; nenhum conteúdo de arquivo no pedido; nenhuma sessão do owner tocada | Teste de escape com aspas, espaço e `$`; teste de argumentos |
 | EB-05 Manutenibilidade | REQUIRED | `src/herdr/` depende só dos tipos do núcleo; `src/core/` não importa `src/herdr/` | Teste de fronteira |
 | EB-06 Dependências | REQUIRED | Nenhuma dependência nova | `bun.lock` sem diff |
-| EB-07 Diagnóstico | REQUIRED | Erro do herdr chega com o comando e a saída relevantes na mensagem, sem conteúdo do pedido | Asserções nos testes |
-| EB-08 Experiência e eficiência | APPLICABLE | `wait` não chama o herdr mais de uma vez por intervalo; texto curto legível | Revisão e teste do texto |
+| EB-07 Diagnóstico | REQUIRED | Erro do herdr chega à mensagem da recusa ou do registro, pelo output 6, com o comando e o resumo, sem conteúdo do pedido | Asserções no envelope `--json` e no texto do CLI |
+| EB-08 Experiência e eficiência | APPLICABLE | Por ciclo do `wait`, uma sondagem e um snapshot, como o núcleo faz; nenhum comando extra do herdr por tarefa; texto curto legível | Contagem de chamadas no herdr falso e teste do texto |
 
 ## 9. Project-specific constraints
 
@@ -245,6 +275,13 @@ Cada item aponta para a Spec, que continua sendo a fonte.
 - Testes e scripts sobem a própria sessão herdr com nome `dz-test-<aleatório>`
   ou `dz-smoke-<aleatório>` e a param no fim, inclusive em falha. O cenário
   remove a pasta `~/.config/herdr/sessions/<nome>/` que criou.
+- Todo processo do Demerzel em teste, cenário ou smoke roda com
+  `XDG_STATE_HOME` e `XDG_CONFIG_HOME` em pastas próprias do teste, com o
+  `config.json` apontando para a sessão herdr isolada. O registro e a
+  configuração reais do owner nunca são lidos nem gravados. Os harnesses não
+  são afetados: eles herdam o ambiente do servidor herdr, não o do Demerzel.
+  O relatório lista os paths efetivos de estado, configuração e sessão de
+  cada execução.
 - Repositórios do cenário são temporários. O smoke usa um repositório
   descartável num path fixo, dado por variável de ambiente, que o owner
   confia uma vez em cada CLI, como na autenticação inicial.
@@ -266,7 +303,8 @@ necessária, é `HOLD`.
 ```text
 bun install --frozen-lockfile
 bun run check                (inclui os testes do backend com o herdr falso)
-git diff --exit-code <commit de entrada> -- src/core test/core bun.lock tsconfig.json .gitignore
+git diff --exit-code <commit de entrada> -- bun.lock tsconfig.json .gitignore
+git diff <commit de entrada> -- test/core     (só arquivos novos)
 git status --porcelain       (vazio depois do commit final)
 ```
 
@@ -277,13 +315,20 @@ temporários, sem harness de modelo. O herdr só inicia agentes dos tipos que
 conhece, então o cenário cobre o que não depende de agente vivo:
 
 - versão e `backend-unavailable` com a sessão parada;
-- `herdr worktree create` e `herdr workspace create` pelos comandos que o
-  backend monta, com o label com espaço lido de volta no snapshot;
+- `launch` do backend entregue, nos dois modos, com um `herdr` intermediário
+  no `PATH` do processo do Demerzel que repassa tudo ao herdr real, menos
+  `agent start`, que ele recusa. Assim worktree, workspace, aba e pane passam
+  pelo código de produção e pelo `onCreated` até o registro, e a tarefa
+  termina em `launch-failed` com esses recursos em `created`. O relatório
+  separa o que veio do herdr real do que veio do intermediário;
+- o label com espaço lido de volta no snapshot;
 - snapshot com o mapeamento de H3;
 - `closeWorkspace`, e de novo sobre um workspace que já não existe;
 - `close` sem descarte preservando worktree e branch, e descarte com
-  alterações saindo com `1` e mantendo o worktree, sobre tarefas cujo
-  lançamento parou depois do workspace.
+  alterações saindo com `1` e mantendo o worktree, sobre as tarefas desse
+  `launch` interrompido;
+- queda do servidor herdr isolado depois de uma sondagem bem-sucedida,
+  conferindo H13.
 
 O que a verificação 7 pede com agente vivo (envio voltando em `working`,
 outro `dispatch` sem esperar o turno, `close` em `working` recusado) é
@@ -302,23 +347,36 @@ permissão de escrita no repositório descartável decidida pelo owner.
 - Contagem do critério do Plan: intervenção é qualquer ação humana na aba
   antes do pedido chegar, exceto a autenticação inicial. Ações depois da
   chegada, como aprovar a escrita do retorno, são registradas à parte.
-- Cada tarefa: envio voltando com o agente em `working`; outro `dispatch` do
-  mesmo projeto sem esperar o turno; `wait`, `collect` e `close` pelo CLI.
+- Cada tarefa: envio voltando com o agente em `working`; `wait`, `collect` e
+  `close` pelo CLI.
+- Concorrência, com duas tarefas longas por harness, sem conflito de
+  `writes`, cujo pedido aponta para um arquivo que pede uma resposta extensa
+  sem usar ferramentas: o segundo `dispatch` termina, pelos horários do
+  registro, enquanto o snapshot ainda mostra o primeiro agente em `working`;
+  e `close` do primeiro é recusado com `task-working` nesse mesmo intervalo.
+  O relatório traz os horários e os estados observados.
 - Claude Code: worktree com path, branch e commit base da tarefa; e um caso
   em que um hook `WorktreeCreate` do próprio projeto imprime outro path,
   levando a tarefa a `launch-failed`.
-- `close` em `working` recusado com um agente real trabalhando.
 - Versões de herdr, Claude Code e Codex registradas.
 
 ### Cenários com o herdr falso, no `bun run check`
 
-Cada requisito H1 a H12 com pelo menos um teste, e ao menos estes casos:
+Cada requisito H1 a H13 com pelo menos um teste, e ao menos estes casos:
 argumentos exatos de cada comando nos dois modos, com e sem `--session`;
 escape do hook com aspas simples, espaço, `$` e quebra de linha recusada;
 cada desfecho de `agent start` e `agent prompt`; snapshot com agente sem
 nome, status desconhecido e workspace sem aba; herdr ausente e saída que não é
 JSON; pós-condição do Claude Code falhando por `foreground_cwd`, por branch
-ausente e por commit diferente; e o CLI com `--json`, texto e uso errado.
+ausente e por commit diferente, também com startup bloqueado; falha entre a
+sondagem e o snapshot, antes e depois do primeiro efeito; e o CLI com
+`--json`, texto e uso errado.
+
+Fluxo integrado obrigatório pelo CLI, com o herdr falso: startup bloqueado
+gravando `request_sent: false`; `resume` com o agente ainda bloqueado saindo
+com `1` sem nenhuma chamada de envio; o herdr falso liberando o agente;
+`resume` enviando exatamente uma vez o texto gravado no registro; e um
+terceiro `resume` recusado com `request-already-sent`.
 
 ### Mutação
 
@@ -335,17 +393,20 @@ regra de propósito, mostra o teste falhando e desfaz.
 
 ### Independent critique
 
-`REQUIRED`, feita pelo orquestrador depois do Completion report e do smoke:
-um `radiant-verifier` num harness diferente do que fez o Build, escolhido pelo
-owner, lançado na sessão herdr `lab`, lendo este contrato, a Spec, o diff
-contra o commit de entrada e o relatório. As objeções e o que foi feito com
-cada uma entram no relatório. Releitura própria não conta.
+`REQUIRED`, feita pelo orquestrador fora do Build, depois do Completion
+report e do smoke: um `radiant-verifier` num harness diferente do que fez o
+Build, escolhido pelo owner, lançado numa aba que o orquestrador abre na
+sessão herdr `lab` (a exceção da seção 4), lendo este contrato, a Spec, o
+diff contra o commit de entrada e o relatório. Pré-requisitos: servidor da
+sessão `lab` rodando e o harness do verificador autenticado e com o
+repositório confiado. As objeções e o que foi feito com cada uma entram no
+relatório. Releitura própria não conta.
 
 ## 12. Acceptance criteria
 
 A tarefa só pode ser declarada `DONE` quando:
 
-- [ ] cada requisito H1 a H12 e cada cenário da seção 11 têm teste ou
+- [ ] cada requisito H1 a H13 e cada cenário da seção 11 têm teste ou
   evidência, ligados na tabela de rastreabilidade;
 - [ ] `bun run check` passa num clone limpo;
 - [ ] o cenário herdr real passou, com a versão do herdr registrada e a
@@ -354,8 +415,12 @@ A tarefa só pode ser declarada `DONE` quando:
   do pedido em cinco lançamentos, e nenhum harness passou de uma; se passou,
   o contrato fecha em `HOLD` pelo ponto de parada do Plan;
 - [ ] as mutações da seção 11 foram mostradas falhando;
-- [ ] `src/core/`, `test/core/`, `bun.lock`, `tsconfig.json` e `.gitignore`
-  não mudaram contra o commit de entrada;
+- [ ] contra o commit de entrada, `src/core/` só tem as mudanças do output 6,
+  `test/core/` só tem testes novos, os testes de núcleo que já existiam
+  passam sem mudança, e `bun.lock`, `tsconfig.json` e `.gitignore` não
+  mudaram;
+- [ ] os paths de estado, configuração e sessão de cada execução de teste,
+  cenário e smoke estão no relatório, e nenhum é do owner;
 - [ ] a crítica independente foi feita pelo orquestrador e cada objeção foi
   aceita com correção ou recusada com motivo;
 - [ ] os recursos que sobraram, worktrees, branches e pastas de sessão, estão
@@ -363,8 +428,8 @@ A tarefa só pode ser declarada `DONE` quando:
 - [ ] não houve mudança fora do Allowed scope, contra o commit de entrada;
 - [ ] a evidência final foi lida, não apenas presumida pelo exit code.
 
-Referentes: os critérios valem para `src/herdr/`, `src/cli.ts`, `src/cli/` e
-seus testes. O comportamento dos harnesses e dos modelos fica fora; o smoke
+Referentes: os critérios valem para `src/herdr/`, `src/cli.ts`, `src/cli/`,
+as mudanças do output 6 em `src/core/` e seus testes. O comportamento dos harnesses e dos modelos fica fora; o smoke
 registra o que eles fizeram, sem julgar a qualidade da resposta.
 
 ## 13. HOLD conditions
@@ -373,7 +438,7 @@ Interromper e pedir decisão quando:
 
 - a Spec não decide um comportamento que muda o registro, o ciclo de vida, um
   código de saída ou um argumento passado a harness;
-- a interface do núcleo não comporta algo que a Spec 2.5 pede;
+- o núcleo precisaria de uma mudança fora do output 6;
 - o herdr real se comporta diferente do que o incremento 1 e a seção 3
   registraram;
 - um teste ou script precisaria tocar a sessão `lab` ou um projeto do owner;
@@ -407,7 +472,7 @@ O agente pode:
 
 O agente não pode, sem HOLD:
 
-- mudar o núcleo, a Spec, o Plan ou este contrato;
+- mudar o núcleo além do output 6, a Spec, o Plan ou este contrato;
 - mudar a stack ou o `tsconfig.json`;
 - antecipar a integração Radiant ou o `dispatch` no CLI;
 - adicionar features não pedidas.
