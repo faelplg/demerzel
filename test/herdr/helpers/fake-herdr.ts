@@ -12,14 +12,16 @@ type Script = {
   running: boolean;
   version: string;
   snapshot: "ok" | "garbage" | "no-lists";
-  start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage">;
+  start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
-  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo";
+  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo" | "echo-code" | "echo-name" | "echo-status";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;
   closeFails: boolean;
+  createAnswer: "ok" | "garbage-after" | "empty-noop";
+  extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script };
 
@@ -87,7 +89,7 @@ if (group === "api" && verb === "snapshot") {
           ...state.agents.map((a) => ({ name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane, tab_id: a.tab, workspace_id: a.workspace, foreground_cwd: a.cwd })),
           ...s.extraAgents,
         ],
-        workspaces: state.workspaces.map((w, i) => ({ workspace_id: w.id, label: w.label, number: i + 1 })),
+        workspaces: [...state.workspaces.map((w, i) => ({ workspace_id: w.id, label: w.label, number: i + 1 })), ...s.extraWorkspaces],
         tabs: state.workspaces.map((w) => ({ tab_id: w.tab, workspace_id: w.id, number: 1, label: "1" })),
         panes: state.workspaces.map((w) => ({ pane_id: w.pane, tab_id: w.tab, workspace_id: w.id })),
       },
@@ -96,7 +98,18 @@ if (group === "api" && verb === "snapshot") {
   );
 }
 
+// A creation whose answer is lost after the effect, or a success that
+// created nothing: the real state and the answer disagree on purpose.
+function answerCreate(result: Record<string, unknown>, id: string): never {
+  if (s.createAnswer === "garbage-after") {
+    process.stdout.write("isto não é JSON\n");
+    process.exit(0);
+  }
+  ok(result, id);
+}
+
 if (group === "worktree" && verb === "create") {
+  if (s.createAnswer === "empty-noop") ok({}, "cli:worktree:create");
   const cwd = opt(rest, "--cwd") ?? "";
   const branch = opt(rest, "--branch") ?? "";
   const base = opt(rest, "--base") ?? "";
@@ -105,13 +118,14 @@ if (group === "worktree" && verb === "create") {
   if (r.exitCode !== 0) fail("worktree_create_failed", r.stderr.toString().trim(), "cli:worktree:create");
   const w = createWorkspace(opt(rest, "--label") ?? "", path);
   save();
-  ok(sessionResult(w, "worktree_created"), "cli:worktree:create");
+  answerCreate(sessionResult(w, "worktree_created"), "cli:worktree:create");
 }
 
 if (group === "workspace" && verb === "create") {
+  if (s.createAnswer === "empty-noop") ok({}, "cli:workspace:create");
   const w = createWorkspace(opt(rest, "--label") ?? "", opt(rest, "--cwd") ?? "");
   save();
-  ok(sessionResult(w, "workspace_created"), "cli:workspace:create");
+  answerCreate(sessionResult(w, "workspace_created"), "cli:workspace:create");
 }
 
 if (group === "workspace" && verb === "close") {
@@ -158,6 +172,10 @@ if (group === "agent" && verb === "start") {
   }
   state.agents.push({ name, kind, status: outcome === "not_ready" ? "blocked" : "idle", pane, workspace: w.id, tab: w.tab, cwd });
   save();
+  if (outcome === "started-garbage") {
+    process.stdout.write("isto não é JSON\n");
+    process.exit(0);
+  }
   if (outcome === "not_ready") fail("agent_not_ready", `agent ${name} is blocked during startup and is not ready for prompts`, "cli:agent:start");
   ok({ agent: { name, agent: kind, agent_status: "idle", pane_id: pane, cwd: w.cwd, foreground_cwd: cwd, interactive_ready: true } }, "cli:agent:start");
 }
@@ -175,6 +193,9 @@ if (group === "agent" && verb === "prompt") {
   if (s.prompt === "ok-no-status") ok({ agent: { name: a.name } }, "cli:agent:prompt");
   if (s.prompt === "other-agent") ok({ agent: { name: "dz-other-agent", agent_status: "working" } }, "cli:agent:prompt");
   if (s.prompt === "error-echo") fail("prompt_failed", `could not send: ${rest[1] ?? ""}`, "cli:agent:prompt");
+  if (s.prompt === "echo-code") fail(rest[1] ?? "", "failed", "cli:agent:prompt");
+  if (s.prompt === "echo-name") ok({ agent: { name: rest[1] ?? "", agent_status: "working" } }, "cli:agent:prompt");
+  if (s.prompt === "echo-status") ok({ agent: { name: a.name, agent_status: rest[1] ?? "" } }, "cli:agent:prompt");
   if (s.prompt === "result-exit-1") {
     process.stdout.write(`${JSON.stringify({ id: "cli:agent:prompt", result: { agent: { name: a.name, agent_status: "working" } } })}\n`);
     process.exit(1);

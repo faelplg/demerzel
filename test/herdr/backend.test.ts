@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { dispatch, status } from "../../src/core/index.ts";
+import { close, dispatch, status } from "../../src/core/index.ts";
 import { BackendError, type LaunchPlan } from "../../src/core/backend.ts";
 import type { Created } from "../../src/core/types.ts";
 import { git } from "../../src/core/git.ts";
@@ -374,5 +374,87 @@ describe("the core with the herdr backend (H13)", () => {
     const s = await status({ ids: [], all: false }, ctx(herdr(null)));
     expect(s.code).toBe(2);
     expect(s.envelope.refusal?.message).toContain("herdr api snapshot");
+  });
+});
+
+describe("lost or broken confirmations (third verification of TC-0002)", () => {
+  // Protects: H5, H6 and H13, when a creation's answer is lost after the
+  // effect, the launch still lists what exists, found by label, agent name
+  // and Git (finding T2). Fails if the registry ends without the workspace
+  // and a later close cannot close it.
+  test("a creation that answers badly after creating", async () => {
+    fake.script({ createAnswer: "garbage-after" });
+    const codex = await launch(herdr(), plan());
+    expect(codex.outcome.kind).toBe("failed");
+    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane"]);
+    expect(codex.outcome.ids.workspace).toBe("w1");
+
+    const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-g000000000000001", label: "TC-0099.2 dz-g000000000000001", branch: "radiant/l", worktreePath: join(sb.root, "wt", "l") }));
+    expect(claude.kinds).toEqual(["workspace", "tab", "pane"]);
+    expect(claude.outcome.ids.workspace).toBe("w2");
+  });
+
+  // Protects: a close after such a launch closes the real workspace. Fails
+  // if the registry lacks the workspace and close reports 0 with it open.
+  test("close after a lost creation answer closes the workspace", async () => {
+    fake.script({ createAnswer: "garbage-after" });
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+    expect(d.envelope.tasks[0]?.backend_ids.workspace).not.toBeNull();
+    expect((await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)))).code).toBe(0);
+    expect(fake.state().workspaces).toEqual([]);
+  });
+
+  // Protects: a success that created nothing lists nothing. Fails if a
+  // worktree is recorded on the answer alone.
+  test("an empty success that created nothing", async () => {
+    fake.script({ createAnswer: "empty-noop" });
+    const r = await launch(herdr(), plan());
+    expect(r.outcome.kind).toBe("failed");
+    expect(r.kinds).toEqual([]);
+  });
+
+  // Protects: an agent that started but whose answer broke is listed
+  // (finding T3). Fails if the live agent is left out of the registry.
+  test("an agent that started but answered badly", async () => {
+    fake.script({ start: { codex: "started-garbage", claude: "started-garbage" } });
+    const codex = await launch(herdr(), plan());
+    expect(codex.outcome.kind).toBe("failed");
+    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-g000000000000002", label: "TC-0099.3 dz-g000000000000002", branch: "radiant/m", worktreePath: join(sb.root, "wt", "m") }));
+    expect(claude.kinds).toEqual(["workspace", "tab", "pane", "worktree", "agent"]);
+  });
+
+  // Protects: Spec 2.3 and 6, the request never comes back through any field
+  // of the answer (finding T1). Fails if the code, the name or the state
+  // carries the request into the diagnosis.
+  test("the request echoed in code, name or state is redacted", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    const request = "Demerzel: tarefa TC-0099.1. Leia os pointers abaixo e execute a tarefa no papel indicado.";
+    for (const mode of ["echo-code", "echo-name", "echo-status"] as const) {
+      fake.script({ prompt: mode });
+      const error = await be.send("dz-0123456789abcdef", request).catch((e: unknown) => e);
+      expect(error, mode).toBeInstanceOf(BackendError);
+      expect(String((error as Error).message), mode).not.toContain("Leia os pointers");
+    }
+  });
+});
+
+describe("required cases of section 11 (finding T4)", () => {
+  // Protects: a path with a line break never reaches herdr. Fails if the
+  // check is removed and herdr is called.
+  test("a line break in the worktree path", async () => {
+    const r = await launch(herdr(), plan({ harness: "claude-code", worktreePath: join(sb.root, "wt", "a\nb") }));
+    expect(r.outcome.kind === "failed" && r.outcome.reason).toContain("quebra de linha");
+    expect(fake.calls()).toEqual([]);
+  });
+
+  // Protects: H3, a workspace without a tab maps to null tab and pane, never
+  // to an invented one. Fails if the mapping makes them up.
+  test("a workspace without a tab", async () => {
+    fake.script({ extraWorkspaces: [{ workspace_id: "w9", label: "solto" }] });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w9", label: "solto", tab: null, pane: null }]);
   });
 });

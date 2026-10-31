@@ -9,14 +9,16 @@ export type FakeHerdrScript = {
   running: boolean;
   version: string;
   snapshot: "ok" | "garbage" | "no-lists";
-  start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage">;
+  start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
-  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo";
+  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo" | "echo-code" | "echo-name" | "echo-status";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;
   closeFails: boolean;
+  createAnswer: "ok" | "garbage-after" | "empty-noop";
+  extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 
 export const defaultScript: FakeHerdrScript = {
@@ -31,6 +33,8 @@ export const defaultScript: FakeHerdrScript = {
   extraAgents: [],
   paneBusy: 0,
   closeFails: false,
+  createAnswer: "ok",
+  extraWorkspaces: [],
 };
 
 export type FakeHerdr = {
