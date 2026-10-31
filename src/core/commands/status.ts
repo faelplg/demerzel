@@ -1,6 +1,6 @@
 import { ProjectLock } from "../lock.ts";
 import type { TaskRecord } from "../types.ts";
-import { done, isOutcome, isProbe, notFound, open, reachBackend, view, type Context, type Outcome, type TaskView } from "./common.ts";
+import { done, isOutcome, isProbe, isSnapshot, notFound, open, reachBackend, readSnapshot, view, type Context, type Outcome, type TaskView } from "./common.ts";
 
 const C = "status";
 
@@ -32,7 +32,9 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
   }
   const probe = await reachBackend(C, ctx.backend);
   if (!isProbe(probe)) return probe;
-  let snapshot = await ctx.backend.snapshot();
+  const first = await readSnapshot(C, ctx.backend);
+  if (!isSnapshot(first)) return first;
+  let snapshot = first;
 
   // A dispatch may have finished while this command read the backend. With
   // the lock free, the half-done tasks are read again before being called
@@ -47,7 +49,11 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
     if (probeLock !== null) {
       try {
         const reread = records.map((r) => (halfDone(r) ? (registry.read(r.id) ?? r) : r));
-        if (reread.some((r, i) => r.lifecycle !== records[i]?.lifecycle)) snapshot = await ctx.backend.snapshot();
+        if (reread.some((r, i) => r.lifecycle !== records[i]?.lifecycle)) {
+          const again = await readSnapshot(C, ctx.backend);
+          if (!isSnapshot(again)) return again;
+          snapshot = again;
+        }
         records = reread;
         for (const r of records) if (halfDone(r)) interrupted.add(r.id);
       } finally {

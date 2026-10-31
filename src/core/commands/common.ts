@@ -1,6 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
-import type { Backend, Probe, Snapshot } from "../backend.ts";
+import { BackendError, type Backend, type Probe, type Snapshot } from "../backend.ts";
 import { loadConfig, type Config } from "../config.ts";
 import type { Env } from "../env.ts";
 import { gitOk } from "../git.ts";
@@ -42,6 +42,9 @@ export type TaskView = {
   request_sent: TaskRecord["request_sent"];
   created: Created[];
   provenance: Record<string, string>;
+  // Spec 2.3, revision 0.9: the backend command and error of a failure after
+  // the first effect of this command, or null.
+  backend_error: string | null;
   created_at: string | null;
   updated_at: string | null;
   collected?: { content: string; path: string; digest: string; digest_changed: boolean };
@@ -99,15 +102,74 @@ export function isLock(value: ProjectLock | Outcome): value is ProjectLock {
   return value instanceof ProjectLock;
 }
 
+const NEXT_UNAVAILABLE = "Suba o servidor do herdr na sessão configurada e rode de novo.";
+
+export function backendUnavailable(command: string, error: BackendError): Outcome {
+  return refuse(command, "backend-unavailable", `o backend falhou: ${error.command}: ${error.detail}`, NEXT_UNAVAILABLE);
+}
+
 export async function reachBackend(command: string, backend: Backend): Promise<Probe | Outcome> {
-  const probe = await backend.probe();
+  let probe: Probe;
+  try {
+    probe = await backend.probe();
+  } catch (error) {
+    if (error instanceof BackendError) return backendUnavailable(command, error);
+    throw error;
+  }
+  const said = probe.detail === null ? "" : `: ${probe.detail}`;
   if (!probe.running || !probe.compatible) {
-    return refuse(command, "backend-unavailable", "o backend não está rodando ou não é compatível", "Suba o servidor do herdr na sessão configurada e rode de novo.");
+    return refuse(command, "backend-unavailable", `o backend não está rodando ou não é compatível${said}`, NEXT_UNAVAILABLE);
   }
   if (!probe.versionOk) {
-    return refuse(command, "backend-version", `versão do backend ${probe.version ?? "desconhecida"} abaixo da mínima ${probe.minimum}`, `Atualize o herdr para ${probe.minimum} ou acima.`);
+    return refuse(command, "backend-version", `versão do backend ${probe.version ?? "desconhecida"} abaixo da mínima ${probe.minimum}${said}`, `Atualize o herdr para ${probe.minimum} ou acima.`);
   }
   return probe;
+}
+
+// Spec 2.3, revision 0.9. Before the first effect of a command, a backend
+// failure is the refusal backend-unavailable.
+export async function readSnapshot(command: string, backend: Backend): Promise<Snapshot | Outcome> {
+  try {
+    return await backend.snapshot();
+  } catch (error) {
+    if (error instanceof BackendError) return backendUnavailable(command, error);
+    throw error;
+  }
+}
+
+export function isSnapshot(value: Snapshot | Outcome): value is Snapshot {
+  return !("envelope" in value);
+}
+
+// After the first effect, a failure to read the backend is not a refusal:
+// the command keeps what it recorded, the agent is observed as unknown, and
+// the error reaches the task in the envelope.
+export type AfterEffect = { snapshot: Snapshot | null; error: string | null };
+
+export async function snapshotAfterEffect(backend: Backend): Promise<AfterEffect> {
+  try {
+    return { snapshot: await backend.snapshot(), error: null };
+  } catch (error) {
+    if (error instanceof BackendError) return { snapshot: null, error: `${error.command}: ${error.detail}` };
+    throw error;
+  }
+}
+
+// `failure` is a backend error this command already met, such as a send
+// that threw; with it, the agent is unknown even if the snapshot worked.
+export function viewAfterEffect(record: TaskRecord, after: AfterEffect, failure: string | null = null): TaskView {
+  const v = view(record, after.snapshot);
+  const error = failure ?? after.error;
+  if (error !== null) {
+    v.backend_error = error;
+    if (v.report !== null) v.agent = "unknown";
+  }
+  return v;
+}
+
+export function backendErrorDetail(error: unknown): string {
+  if (error instanceof BackendError) return `${error.command}: ${error.detail}`;
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function isProbe(value: Probe | Outcome): value is Probe {
@@ -173,6 +235,7 @@ export function view(record: TaskRecord, snapshot: Snapshot | null, options: { i
     request_sent: record.request_sent,
     created: record.created,
     provenance: record.provenance,
+    backend_error: null,
     created_at: first?.at ?? null,
     updated_at: last?.at ?? null,
   };

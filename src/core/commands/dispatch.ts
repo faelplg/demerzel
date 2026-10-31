@@ -5,7 +5,7 @@ import { agentName } from "../project.ts";
 import { entry } from "../registry.ts";
 import { buildRequest, checkBranchName, checkPointers, overlaps, parseTask, resolveBase } from "../task.ts";
 import type { TaskRecord } from "../types.ts";
-import { done, isLock, isOutcome, isProbe, lock, open, planRecovery, reachBackend, refuse, transition, view, workspaceLabel, type Context, type Outcome } from "./common.ts";
+import { backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, transition, view, viewAfterEffect, workspaceLabel, type Context, type Outcome } from "./common.ts";
 
 const C = "dispatch";
 
@@ -27,7 +27,8 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
   try {
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
-    const snapshot = await ctx.backend.snapshot();
+    const snapshot = await readSnapshot(C, ctx.backend);
+    if (!isSnapshot(snapshot)) return snapshot;
     const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
 
     if (registry.taken(task.id)) {
@@ -130,16 +131,18 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
         ctx.trace?.(`wrote:created:${resource.kind}`);
       });
     } catch (error) {
-      launch = { kind: "failed" as const, reason: error instanceof Error ? error.message : String(error), ids: record.backend_ids };
+      launch = { kind: "failed" as const, reason: backendErrorDetail(error), ids: record.backend_ids };
     }
     if (launch.kind === "failed") {
       transition(registry, record, "launch-failed", { reason: launch.reason }, ctx.trace);
-      return done(C, 1, [view(record, null)]);
+      const v = view(record, null);
+      v.backend_error = launch.reason;
+      return done(C, 1, [v]);
     }
     if (launch.kind === "blocked") {
       record.request_sent = false;
       transition(registry, record, "launched", { startup: "blocked", request_sent: false }, ctx.trace);
-      return done(C, 1, [view(record, await ctx.backend.snapshot())]);
+      return done(C, 1, [viewAfterEffect(record, await snapshotAfterEffect(ctx.backend))]);
     }
 
     record.send_started_at = new Date().toISOString();
@@ -147,14 +150,17 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     registry.write(record);
     ctx.trace?.("wrote:send-started");
     let sent;
+    let failure: string | null = null;
     try {
       sent = await ctx.backend.send(name, record.request_text);
-    } catch {
+    } catch (error) {
       sent = "unknown" as const;
+      failure = backendErrorDetail(error);
     }
     record.request_sent = sent === "sent" ? true : sent === "not-ready" ? false : "unknown";
-    transition(registry, record, "launched", { request_sent: record.request_sent }, ctx.trace);
-    return done(C, record.request_sent === true ? 0 : 1, [view(record, await ctx.backend.snapshot())]);
+    transition(registry, record, "launched", { request_sent: record.request_sent, ...(failure === null ? {} : { backend_error: failure }) }, ctx.trace);
+    const after = await snapshotAfterEffect(ctx.backend);
+    return done(C, record.request_sent === true && after.error === null ? 0 : 1, [viewAfterEffect(record, after, failure)]);
   } finally {
     held.release();
   }
