@@ -32,7 +32,7 @@ a emenda 1, gravado no relatório antes da primeira edição
 **Source plan/spec:**
 
 - [Plan 0.3](../PLAN.md), incremento 3.
-- [Spec 0.7](../SPEC.md): seção 1; seção 2 inteira, com o backend da 2.5 só
+- [Spec 0.8](../SPEC.md): seção 1; seção 2 inteira, com o backend da 2.5 só
   como interface; seção 4 com a matriz; seção 5, recusas do núcleo; seção 6;
   seção 7, verificações 1, 2 e 5 e a parte do núcleo das 3 e 4.
 
@@ -46,7 +46,7 @@ a emenda 1, gravado no relatório antes da primeira edição
 
 ## 3. Inputs
 
-- `docs/project/SPEC.md` (revisão 0.7) e `docs/project/PLAN.md` (revisão 0.3).
+- `docs/project/SPEC.md` (revisão 0.8) e `docs/project/PLAN.md` (revisão 0.3).
 - `docs/project/FRAME.md`, para a regra de egress e as fronteiras.
 - A stack do incremento 2: `package.json`, `tsconfig.json`, `bun.lock`,
   `src/cli.ts`, `test/cli.test.ts`, e os comandos do `AGENTS.md`.
@@ -430,6 +430,9 @@ registradas na Spec 0.7. A fronteira, os outputs e os critérios não mudam:
   saída `1`, para tarefa em `recorded` ou `launching` com o lock livre.
 - O commit de entrada do Build passa a ser o merge do PR desta emenda, que
   também muda a referência deste contrato para a Spec 0.7.
+- Depois da verificação independente, o owner decidiu o label do workspace
+  (Spec 0.8, seção 2.5): ID da tarefa e nome do agente. Entra no mesmo PR
+  desta emenda, antes do merge, e o contrato passa a apontar para a Spec 0.8.
 
 ## 17. Completion rule
 

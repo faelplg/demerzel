@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
 Revisão do Plan: 0.3, 2026-10-31
-Spec: [revisão 0.7](SPEC.md)
+Spec: [revisão 0.8](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que

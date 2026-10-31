@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.7, 2026-10-31
+Revisão da Spec: 0.8, 2026-10-31
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -203,8 +203,8 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 
 | Operação | herdr 0.9.0 |
 | --- | --- |
-| Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <id> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
-| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <id> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
+| Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <label> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
+| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <label> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args>`. No Codex, `<args>` são modelo e esforço. No Claude Code, vêm antes `--worktree <nome> --settings <hook>`, descritos abaixo. |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
@@ -213,6 +213,10 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 
 - No herdr 0.9.0, `worktree create` e `workspace create` abrem um workspace
   próprio com uma aba e um pane. A "aba própria" da unidade é essa aba.
+- O label do workspace é o ID da tarefa, um espaço e o nome do agente, por
+  exemplo `TC-0025.1 dz-6de747e982262631`. O ID é o que o humano lê na aba;
+  o nome do agente torna o label único entre projetos que compartilham o
+  herdr, para que a recuperação nunca tome a aba de outro projeto.
 - O path do worktree é `<registro do projeto>/worktrees/<id>`, decidido antes
   do primeiro efeito para que a recusa de path existente seja verificável.
   Path, branch e base são os mesmos nos dois harnesses; muda só quem cria o
@@ -619,3 +623,10 @@ em 2026-10-31:
 | Comando fora de um repositório Git | Recusa `not-a-project` |
 | Quem recupera `dispatch` interrompido | Só `dispatch`, `resume` e `close`, que falam com o backend; `collect` não recupera |
 | Tarefa pela metade no `status` | `status` testa o lock sem esperar; com o lock livre, mostra `interrupted: true` e sai com `1` |
+
+Revisão 0.8, 2026-10-31, depois da verificação independente do Build do
+TC-0001. Aprovada pelo owner em 2026-10-31:
+
+| Questão | Decisão |
+| --- | --- |
+| Label do workspace | ID da tarefa, espaço e nome do agente, único entre projetos |
