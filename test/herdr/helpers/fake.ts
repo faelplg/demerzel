@@ -9,10 +9,10 @@ export type FakeHerdrScript = {
   running: boolean;
   version: string;
   snapshot: "ok" | "garbage" | "no-lists";
-  start: Record<string, "ready" | "not_ready" | "error">;
+  start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
-  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage";
+  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;

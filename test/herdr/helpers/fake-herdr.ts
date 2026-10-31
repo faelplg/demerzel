@@ -12,10 +12,10 @@ type Script = {
   running: boolean;
   version: string;
   snapshot: "ok" | "garbage" | "no-lists";
-  start: Record<string, "ready" | "not_ready" | "error">;
+  start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
-  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage";
+  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;
@@ -150,6 +150,12 @@ if (group === "agent" && verb === "start") {
   if (s.cwd === "root") cwd = w.cwd;
   const outcome = s.start[kind] ?? "ready";
   if (outcome === "error") fail("agent_start_failed", "agent exited during startup", "cli:agent:start");
+  // Controlled bad answers, with nothing started.
+  if (outcome === "ok-empty") ok({}, "cli:agent:start");
+  if (outcome === "garbage") {
+    process.stdout.write("isto não é JSON\n");
+    process.exit(0);
+  }
   state.agents.push({ name, kind, status: outcome === "not_ready" ? "blocked" : "idle", pane, workspace: w.id, tab: w.tab, cwd });
   save();
   if (outcome === "not_ready") fail("agent_not_ready", `agent ${name} is blocked during startup and is not ready for prompts`, "cli:agent:start");
@@ -167,6 +173,8 @@ if (group === "agent" && verb === "prompt") {
   if (a === undefined) fail("agent_not_found", `agent target ${rest[0]} not found`, "cli:agent:prompt");
   if (a.status === "blocked") fail("agent_blocked", `agent ${a.name} is blocked and requires interactive input`, "cli:agent:prompt");
   if (s.prompt === "ok-no-status") ok({ agent: { name: a.name } }, "cli:agent:prompt");
+  if (s.prompt === "other-agent") ok({ agent: { name: "dz-other-agent", agent_status: "working" } }, "cli:agent:prompt");
+  if (s.prompt === "error-echo") fail("prompt_failed", `could not send: ${rest[1] ?? ""}`, "cli:agent:prompt");
   if (s.prompt === "result-exit-1") {
     process.stdout.write(`${JSON.stringify({ id: "cli:agent:prompt", result: { agent: { name: a.name, agent_status: "working" } } })}\n`);
     process.exit(1);

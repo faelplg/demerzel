@@ -54,6 +54,17 @@ export function hookSettings(plan: LaunchPlan): string {
   return JSON.stringify({ hooks: { WorktreeCreate: [{ hooks: [{ type: "command", command: hook }] }] } });
 }
 
+// Spec 2.3 and 6: a diagnosis never carries the request. The whole text and
+// each of its longer lines are taken out of a message before it is kept.
+export function redact(message: string, request: string): string {
+  let out = message.split(request).join("[pedido]");
+  for (const line of request.split("\n")) {
+    const piece = line.trim();
+    if (piece.length >= 8) out = out.split(piece).join("[pedido]");
+  }
+  return out;
+}
+
 function sameDir(a: string | null, b: string): boolean {
   if (a === null || !existsSync(a) || !existsSync(b)) return false;
   return realpathSync(a) === realpathSync(b);
@@ -162,13 +173,28 @@ export class HerdrBackend implements Backend {
     return pane;
   }
 
-  // A pane just opened may not have its shell ready yet; herdr then answers
-  // agent_pane_busy and starts nothing, so trying again is safe.
-  private async startAgent(args: string[]) {
+  // Starts the agent and reads the answer as ready, blocked or failed. A pane
+  // just opened may not have its shell ready yet; herdr then answers
+  // agent_pane_busy and starts nothing, so trying again is safe. Ready needs
+  // a confirmation that names this agent; any other success, a broken answer
+  // or a transport error is failed, never thrown, so the caller can still
+  // list what the launch created.
+  private async startAgent(name: string, args: string[]): Promise<{ kind: "ready" | "blocked" } | { kind: "failed"; reason: string }> {
     const deadline = Date.now() + (this.options.paneReadyWaitMs ?? 10_000);
     for (;;) {
-      const reply = this.herdr.run(args);
-      if (reply.ok || reply.code !== "agent_pane_busy" || Date.now() >= deadline) return reply;
+      let reply;
+      try {
+        reply = this.herdr.run(args);
+      } catch (error) {
+        return { kind: "failed", reason: error instanceof BackendError ? `${error.command}: ${error.detail}` : String(error) };
+      }
+      if (reply.ok) {
+        const confirmed = text(reply.result, "agent", "name");
+        if (confirmed === name) return { kind: "ready" };
+        return { kind: "failed", reason: `herdr agent start: confirmação sem o agente ${name} (${confirmed ?? "nenhum nome"})` };
+      }
+      if (reply.code === "agent_not_ready") return { kind: "blocked" };
+      if (reply.code !== "agent_pane_busy" || Date.now() >= deadline) return { kind: "failed", reason: `herdr agent start: ${reply.code}: ${reply.message}` };
       await Bun.sleep(250);
     }
   }
@@ -188,16 +214,10 @@ export class HerdrBackend implements Backend {
       onCreated({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
       const pane = this.session(created.result, ids, onCreated);
       if (pane === null) return failed("herdr worktree create: resposta sem root_pane");
-      const started = await this.startAgent(["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
-      if (started.ok) {
-        onCreated({ kind: "agent", name: plan.agentName });
-        return { kind: "ready", ids };
-      }
-      if (started.code === "agent_not_ready") {
-        onCreated({ kind: "agent", name: plan.agentName });
-        return { kind: "blocked", ids };
-      }
-      return failed(`herdr agent start: ${started.code}: ${started.message}`);
+      const started = await this.startAgent(plan.agentName, ["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
+      if (started.kind === "failed") return failed(started.reason);
+      onCreated({ kind: "agent", name: plan.agentName });
+      return { kind: started.kind, ids };
     }
 
     // Claude Code: the session opens at the project root and Claude Code
@@ -210,16 +230,16 @@ export class HerdrBackend implements Backend {
     if (!created.ok) return failed(`herdr workspace create: ${created.code}: ${created.message}`);
     const pane = this.session(created.result, ids, onCreated);
     if (pane === null) return failed("herdr workspace create: resposta sem root_pane");
-    const started = await this.startAgent([
+    const started = await this.startAgent(plan.agentName, [
       "agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", "--worktree", worktreeName, "--settings", settings, ...this.modelArgs(plan, preparation),
     ]);
-    const blocked = !started.ok && started.code === "agent_not_ready";
-    // The hook may have created the worktree even when agent start fails:
-    // it is listed in `created` on every path.
+    const blocked = started.kind === "blocked";
+    // The hook may have created the worktree even when agent start fails or
+    // answers badly: it is listed in `created` on every path.
     const branch = git(plan.mainCheckout, ["rev-parse", "--verify", "--quiet", `refs/heads/${plan.branch}`], this.env);
     const worktreeExists = existsSync(plan.worktreePath) && branch.code === 0;
     if (worktreeExists) onCreated({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
-    if (!started.ok && !blocked) return failed(`herdr agent start: ${started.code}: ${started.message}`);
+    if (started.kind === "failed") return failed(started.reason);
 
     // Spec 2.5, revision 0.9: the postcondition holds also on a blocked
     // startup, so resume never sends to a worktree nobody checked.
@@ -256,11 +276,13 @@ export class HerdrBackend implements Backend {
     const reply = this.herdr.run(["agent", "prompt", agentName, requestText, "--wait", "--until", "working", "--until", "blocked", "--timeout", timeout]);
     if (reply.ok) {
       const state = text(reply.result, "agent", "agent_status");
+      const name = text(reply.result, "agent", "name");
+      if (name !== agentName) throw new BackendError("herdr agent prompt", `confirmação de outro agente (${name ?? "nenhum nome"})`);
       if (state !== null && AGENT_STATUS.has(state as SnapshotAgentStatus) && state !== "unknown") return "sent";
       throw new BackendError("herdr agent prompt", `confirmação sem o estado do agente (${state ?? "ausente"})`);
     }
     if (reply.code === "agent_not_ready" || reply.code === "agent_blocked") return "not-ready";
-    throw new BackendError("herdr agent prompt", `${reply.code}: ${reply.message}`);
+    throw new BackendError("herdr agent prompt", `${reply.code}: ${redact(reply.message, requestText)}`);
   }
 
   async closeWorkspace(workspaceId: string): Promise<void> {

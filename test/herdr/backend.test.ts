@@ -248,6 +248,22 @@ describe("launch (H5, H6, H7)", () => {
   // Protects: H6, a Claude Code agent start that fails after the hook ran
   // still lists the worktree in created (finding F2). Fails if the worktree
   // is checked only on the success path.
+  // Protects: H5 and H6, a success that does not name this agent, or a
+  // broken answer, is a failed launch that still lists what exists
+  // (findings N2 and N4). Fails if an unconfirmed agent is recorded or the
+  // hook's worktree is lost.
+  test("unconfirmed or broken agent start", async () => {
+    fake.script({ start: { codex: "ok-empty" } });
+    const empty = await launch(herdr(), plan());
+    expect(empty.outcome.kind === "failed" && empty.outcome.reason).toContain("confirmação sem o agente");
+    expect(empty.kinds).toEqual(["worktree", "workspace", "tab", "pane"]);
+
+    fake.script({ start: { claude: "garbage" } });
+    const broken = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-f000000000000001", branch: "radiant/k", worktreePath: join(sb.root, "wt", "k") }));
+    expect(broken.outcome.kind === "failed" && broken.outcome.reason).toContain("não é JSON");
+    expect(broken.kinds).toEqual(["workspace", "tab", "pane", "worktree"]);
+  });
+
   test("claude-code agent start error after the hook", async () => {
     fake.script({ start: { claude: "error" } });
     const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-e000000000000001", branch: "radiant/j", worktreePath: join(sb.root, "wt", "j") }));
@@ -285,6 +301,24 @@ describe("send and close (H8, H9)", () => {
     await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("confirmação sem o estado do agente");
     fake.script({ prompt: "result-exit-1" });
     await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("unexpected_exit");
+    // Finding N1 of the second verification: a confirmation about another
+    // agent is not this agent's delivery.
+    fake.script({ prompt: "other-agent" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("confirmação de outro agente");
+  });
+
+  // Protects: Spec 2.3 and 6, a structured herdr error that echoes the
+  // request never brings it into the diagnosis (finding N3). Fails if the
+  // error message is kept as it came.
+  test("a structured error that echoes the request is redacted", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ prompt: "error-echo" });
+    const request = "Demerzel: tarefa TC-0099.1.\nLeia os pointers abaixo e execute a tarefa no papel indicado.";
+    const error = await be.send("dz-0123456789abcdef", request).catch((e: unknown) => e);
+    expect(String((error as Error).message)).toContain("prompt_failed");
+    expect(String((error as Error).message)).not.toContain("Leia os pointers");
+    expect(String((error as Error).message)).not.toContain("Demerzel: tarefa");
   });
 
   // Protects: H13 and Spec 6, a broken answer never copies the request into
