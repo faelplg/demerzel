@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.6, 2026-10-31
+Revisão da Spec: 0.8, 2026-10-31
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -121,15 +121,18 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   antes do primeiro efeito; cada recurso entra em `created` logo depois de
   criado; `send_started_at` antes do envio; `launched` com o desfecho do
   envio. Cada gravação termina antes do passo seguinte começar.
-- Recuperação: um comando que pega o lock e encontra tarefa em `recorded` ou
-  `launching` sabe que o `dispatch` dela foi interrompido, porque o dono
-  daquele `dispatch` teria o lock. Antes de agir, ele grava a recuperação e o
-  motivo `interrupted` no histórico:
+- Projeto ausente: um comando chamado fora de um repositório Git não tem
+  projeto nem registro, e a recusa é `not-a-project`.
+- Recuperação: `dispatch`, `resume` e `close`, os comandos que pegam o lock e
+  falam com o backend, ao encontrar tarefa em `recorded` ou `launching` sabem
+  que o `dispatch` dela foi interrompido, porque o dono daquele `dispatch`
+  teria o lock. Antes de agir, gravam a recuperação e o motivo `interrupted`
+  no histórico. `collect` não recupera e só grava a própria tarefa:
   - `recorded`: `launch-failed` com `created` vazio, porque nenhum efeito
     começou;
   - `launching`: confere no Git e no snapshot o branch, o worktree, o
-    workspace pelo label e o agente pelo nome, e grava em `created` o que
-    existe. Com o agente vivo, a tarefa vai para `launched`, com
+    workspace pelo ID gravado ou, sem ele, pelo label, com a aba e o pane
+    dele, e o agente pelo nome, e grava em `created` o que existe. Com o agente vivo, a tarefa vai para `launched`, com
     `request_sent: unknown` se `send_started_at` foi gravado e `false` se não;
     sem agente, para `launch-failed`;
   - nada é relançado nem reenviado sozinho.
@@ -200,8 +203,8 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 
 | Operação | herdr 0.9.0 |
 | --- | --- |
-| Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <id> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
-| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <id> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
+| Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <label> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
+| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <label> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args>`. No Codex, `<args>` são modelo e esforço. No Claude Code, vêm antes `--worktree <nome> --settings <hook>`, descritos abaixo. |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
@@ -210,6 +213,10 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 
 - No herdr 0.9.0, `worktree create` e `workspace create` abrem um workspace
   próprio com uma aba e um pane. A "aba própria" da unidade é essa aba.
+- O label do workspace é o ID da tarefa, um espaço e o nome do agente, por
+  exemplo `TC-0025.1 dz-6de747e982262631`. O ID é o que o humano lê na aba;
+  o nome do agente torna o label único entre projetos que compartilham o
+  herdr, para que a recuperação nunca tome a aba de outro projeto.
 - O path do worktree é `<registro do projeto>/worktrees/<id>`, decidido antes
   do primeiro efeito para que a recusa de path existente seja verificável.
   Path, branch e base são os mesmos nos dois harnesses; muda só quem cria o
@@ -379,8 +386,13 @@ pedido: o texto já está no registro e não é montado de novo.
 Sem IDs, lista as tarefas que não estão `closed`; `--all` inclui as
 `closed`.
 
+`status` não espera pelo lock nem grava nada, mas tenta pegá-lo sem esperar
+e o solta em seguida. Com o lock livre, uma tarefa em `recorded` ou
+`launching` foi interrompida e aparece com `interrupted: true`; com o lock
+ocupado, pode ser um `dispatch` em curso e aparece como está.
+
 - `0`: leitura feita e nenhuma tarefa pede atenção.
-- `1`: alguma tarefa `launch-failed`, ou `launched` ou `collected` com
+- `1`: alguma tarefa `interrupted` ou `launch-failed`, ou `launched` ou `collected` com
   agente `blocked`, `unknown` ou `lost`, ou com agente `idle` e retorno
   `absent`.
 - `2`: recusa da matriz acima.
@@ -468,6 +480,7 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
 | Lock do projeto ocupado por outro processo por mais de 30 s | `project-locked` | Núcleo |
 | ID sem tarefa no registro | `task-not-found` | Núcleo |
+| Comando fora de um repositório Git | `not-a-project` | Núcleo |
 | Ciclo de vida que o comando não aceita (matriz da seção 4) | `wrong-lifecycle` | Núcleo |
 | `resume` com pedido já enviado ou `request_sent: unknown` | `request-already-sent` | Núcleo |
 | `resume` com agente `lost` | `task-lost` | Núcleo |
@@ -601,3 +614,19 @@ contrato:
 | Comandos por ciclo de vida | Matriz da seção 4, com `task-not-found`, `wrong-lifecycle`, `request-already-sent`, `task-lost` e `task-working` |
 | Reuso de ID | Nunca; `task-exists` para qualquer ID registrado |
 | Sobreposição de `writes` | Por segmentos, com diferença de caixa e sem resolver symlinks |
+
+Revisão 0.7, 2026-10-31, ao iniciar o Build do TC-0001. Aprovadas pelo owner
+em 2026-10-31:
+
+| Questão | Decisão |
+| --- | --- |
+| Comando fora de um repositório Git | Recusa `not-a-project` |
+| Quem recupera `dispatch` interrompido | Só `dispatch`, `resume` e `close`, que falam com o backend; `collect` não recupera |
+| Tarefa pela metade no `status` | `status` testa o lock sem esperar; com o lock livre, mostra `interrupted: true` e sai com `1` |
+
+Revisão 0.8, 2026-10-31, depois da verificação independente do Build do
+TC-0001. Aprovada pelo owner em 2026-10-31:
+
+| Questão | Decisão |
+| --- | --- |
+| Label do workspace | ID da tarefa, espaço e nome do agente, único entre projetos |
