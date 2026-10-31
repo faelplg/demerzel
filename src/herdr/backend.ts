@@ -20,6 +20,8 @@ const AGENT_STATUS = new Set<SnapshotAgentStatus>(["working", "blocked", "idle",
 
 export type HerdrOptions = {
   startTimeoutMs?: number;
+  // How long agent start is retried while the new pane's shell is not ready.
+  paneReadyWaitMs?: number;
   promptTimeoutMs?: number;
   // How long the Claude Code postcondition waits for the agent's cwd.
   postconditionWaitMs?: number;
@@ -160,6 +162,17 @@ export class HerdrBackend implements Backend {
     return pane;
   }
 
+  // A pane just opened may not have its shell ready yet; herdr then answers
+  // agent_pane_busy and starts nothing, so trying again is safe.
+  private async startAgent(args: string[]) {
+    const deadline = Date.now() + (this.options.paneReadyWaitMs ?? 10_000);
+    for (;;) {
+      const reply = this.herdr.run(args);
+      if (reply.ok || reply.code !== "agent_pane_busy" || Date.now() >= deadline) return reply;
+      await Bun.sleep(250);
+    }
+  }
+
   async launch(plan: LaunchPlan, preparation: Preparation, onCreated: (resource: Created) => void): Promise<LaunchOutcome> {
     const ids: BackendIds = { workspace: null, tab: null, pane: null };
     const failed = (reason: string): LaunchOutcome => ({ kind: "failed", reason, ids });
@@ -175,7 +188,7 @@ export class HerdrBackend implements Backend {
       onCreated({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
       const pane = this.session(created.result, ids, onCreated);
       if (pane === null) return failed("herdr worktree create: resposta sem root_pane");
-      const started = this.herdr.run(["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
+      const started = await this.startAgent(["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
       if (started.ok) {
         onCreated({ kind: "agent", name: plan.agentName });
         return { kind: "ready", ids };
@@ -197,7 +210,7 @@ export class HerdrBackend implements Backend {
     if (!created.ok) return failed(`herdr workspace create: ${created.code}: ${created.message}`);
     const pane = this.session(created.result, ids, onCreated);
     if (pane === null) return failed("herdr workspace create: resposta sem root_pane");
-    const started = this.herdr.run([
+    const started = await this.startAgent([
       "agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", "--worktree", worktreeName, "--settings", settings, ...this.modelArgs(plan, preparation),
     ]);
     const blocked = !started.ok && started.code === "agent_not_ready";

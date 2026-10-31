@@ -185,8 +185,10 @@ try {
   // Returns through the CLI. The harnesses may ask to write the file; the
   // owner answers in the tabs.
   say("Esperando os retornos das tarefas curtas. Se um harness pedir permissão para gravar, responda na aba.");
-  const short = ids.filter((id) => !id.includes("long"));
+  const live = (id: string) => ["launched", "collected"].includes(record(id).lifecycle);
+  const short = ids.filter((id) => !id.includes("long") && live(id));
   const w = await cli("wait", ...short, "--timeout", String(waitMs));
+  if (w.envelope.refusal) say(`wait recusado: ${w.envelope.refusal.code} ${w.envelope.refusal.message}`);
   for (const t of w.envelope.tasks as Array<{ id: string; agent: string; report: string }>) {
     const c = t.report === "present" ? await cli("collect", t.id) : null;
     (report["returns"] as unknown[]).push({ id: t.id, agent: t.agent, report: t.report, collect_code: c?.code ?? null, content: c?.envelope.tasks[0]?.collected?.content ?? null });
@@ -211,8 +213,15 @@ try {
   }
 
   // Close everything through the CLI once the agents stop.
+  // A present return does not mean the agent stopped; close waits until no
+  // agent of the run is working.
   say("Esperando os agentes pararem para fechar as tarefas.");
-  await cli("wait", ...ids.filter((id) => record(id).lifecycle === "launched" || record(id).lifecycle === "collected"), "--timeout", String(waitMs));
+  const stopBy = Date.now() + waitMs;
+  for (;;) {
+    const s = await status({ ids: ids.filter(live), all: false }, ctx);
+    if (!s.envelope.tasks.some((t) => t.agent === "working") || Date.now() > stopBy) break;
+    await Bun.sleep(5000);
+  }
   for (const id of ids) {
     const lifecycle = record(id).lifecycle;
     if (lifecycle === "closed") continue;

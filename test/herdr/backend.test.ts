@@ -222,6 +222,23 @@ describe("launch (H5, H6, H7)", () => {
     expect(unchecked.kinds).toEqual(["workspace", "tab", "pane", "agent"]);
   });
 
+  // Protects: a pane whose shell is not ready yet is retried, in both modes,
+  // and a pane that stays busy ends in failed. Fails if the first
+  // agent_pane_busy ends the launch, as the smoke of 2026-10-31 showed.
+  test("agent start retried while the pane is busy", async () => {
+    fake.script({ paneBusy: 2 });
+    const codex = await launch(herdr(), plan());
+    expect(codex.outcome.kind).toBe("ready");
+    fake.script({ paneBusy: 2 });
+    const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-d000000000000001", branch: "radiant/h", worktreePath: join(sb.root, "wt", "h") }));
+    expect(claude.outcome.kind).toBe("ready");
+    const starts = fake.calls().filter((c) => c[2] === "agent" && c[3] === "start");
+    expect(starts).toHaveLength(6);
+    fake.script({ paneBusy: 100 });
+    const busy = await launch(herdr("dz-test", { paneReadyWaitMs: 300 }), plan({ agentName: "dz-d000000000000002", branch: "radiant/i", worktreePath: join(sb.root, "wt", "i") }));
+    expect(busy.outcome.kind === "failed" && busy.outcome.reason).toContain("agent_pane_busy");
+  });
+
   test("agent start error", async () => {
     fake.script({ start: { codex: "error" } });
     const r = await launch(herdr(), plan());

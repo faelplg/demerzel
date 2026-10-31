@@ -15,6 +15,7 @@ export type FakeHerdrScript = {
   prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
+  paneBusy: number;
 };
 
 export const defaultScript: FakeHerdrScript = {
@@ -27,6 +28,7 @@ export const defaultScript: FakeHerdrScript = {
   prompt: "ok",
   statusAfterPrompt: "working",
   extraAgents: [],
+  paneBusy: 0,
 };
 
 export type FakeHerdr = {

@@ -18,6 +18,7 @@ type Script = {
   prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
+  paneBusy: number;
 };
 type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script };
 
@@ -128,6 +129,11 @@ if (group === "agent" && verb === "start") {
   const pane = opt(rest, "--pane") ?? "";
   const w = state.workspaces.find((x) => x.pane === pane);
   if (w === undefined) fail("pane_not_found", `pane ${pane} not found`, "cli:agent:start");
+  if (s.paneBusy > 0) {
+    s.paneBusy--;
+    save();
+    fail("agent_pane_busy", `agent target pane ${pane} is not an available shell`, "cli:agent:start");
+  }
   const agentArgs = rest.slice(rest.indexOf("--") + 1);
   let cwd = w.cwd;
   const settings = opt(agentArgs, "--settings");
