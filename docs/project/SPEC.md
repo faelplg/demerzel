@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.6, 2026-10-31
+Revisão da Spec: 0.7, 2026-10-31
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -121,10 +121,13 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   antes do primeiro efeito; cada recurso entra em `created` logo depois de
   criado; `send_started_at` antes do envio; `launched` com o desfecho do
   envio. Cada gravação termina antes do passo seguinte começar.
-- Recuperação: um comando que pega o lock e encontra tarefa em `recorded` ou
-  `launching` sabe que o `dispatch` dela foi interrompido, porque o dono
-  daquele `dispatch` teria o lock. Antes de agir, ele grava a recuperação e o
-  motivo `interrupted` no histórico:
+- Projeto ausente: um comando chamado fora de um repositório Git não tem
+  projeto nem registro, e a recusa é `not-a-project`.
+- Recuperação: `dispatch`, `resume` e `close`, os comandos que pegam o lock e
+  falam com o backend, ao encontrar tarefa em `recorded` ou `launching` sabem
+  que o `dispatch` dela foi interrompido, porque o dono daquele `dispatch`
+  teria o lock. Antes de agir, gravam a recuperação e o motivo `interrupted`
+  no histórico. `collect` não recupera e só grava a própria tarefa:
   - `recorded`: `launch-failed` com `created` vazio, porque nenhum efeito
     começou;
   - `launching`: confere no Git e no snapshot o branch, o worktree, o
@@ -379,8 +382,13 @@ pedido: o texto já está no registro e não é montado de novo.
 Sem IDs, lista as tarefas que não estão `closed`; `--all` inclui as
 `closed`.
 
+`status` não espera pelo lock nem grava nada, mas tenta pegá-lo sem esperar
+e o solta em seguida. Com o lock livre, uma tarefa em `recorded` ou
+`launching` foi interrompida e aparece com `interrupted: true`; com o lock
+ocupado, pode ser um `dispatch` em curso e aparece como está.
+
 - `0`: leitura feita e nenhuma tarefa pede atenção.
-- `1`: alguma tarefa `launch-failed`, ou `launched` ou `collected` com
+- `1`: alguma tarefa `interrupted` ou `launch-failed`, ou `launched` ou `collected` com
   agente `blocked`, `unknown` ou `lost`, ou com agente `idle` e retorno
   `absent`.
 - `2`: recusa da matriz acima.
@@ -468,6 +476,7 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
 | Lock do projeto ocupado por outro processo por mais de 30 s | `project-locked` | Núcleo |
 | ID sem tarefa no registro | `task-not-found` | Núcleo |
+| Comando fora de um repositório Git | `not-a-project` | Núcleo |
 | Ciclo de vida que o comando não aceita (matriz da seção 4) | `wrong-lifecycle` | Núcleo |
 | `resume` com pedido já enviado ou `request_sent: unknown` | `request-already-sent` | Núcleo |
 | `resume` com agente `lost` | `task-lost` | Núcleo |
@@ -601,3 +610,12 @@ contrato:
 | Comandos por ciclo de vida | Matriz da seção 4, com `task-not-found`, `wrong-lifecycle`, `request-already-sent`, `task-lost` e `task-working` |
 | Reuso de ID | Nunca; `task-exists` para qualquer ID registrado |
 | Sobreposição de `writes` | Por segmentos, com diferença de caixa e sem resolver symlinks |
+
+Revisão 0.7, 2026-10-31, ao iniciar o Build do TC-0001. Aprovadas pelo owner
+em 2026-10-31:
+
+| Questão | Decisão |
+| --- | --- |
+| Comando fora de um repositório Git | Recusa `not-a-project` |
+| Quem recupera `dispatch` interrompido | Só `dispatch`, `resume` e `close`, que falam com o backend; `collect` não recupera |
+| Tarefa pela metade no `status` | `status` testa o lock sem esperar; com o lock livre, mostra `interrupted: true` e sai com `1` |
