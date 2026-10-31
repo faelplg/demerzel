@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.3, 2026-10-30
+Revisão da Spec: 0.4, 2026-10-31
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -10,7 +10,9 @@ de despacho, a integração Radiant e os comandos `dispatch`, `resume`,
 no Frame. As decisões de origem são o ADR-0002 e o ADR-0003 do Radiant
 (`docs/adrs/` no checkout indicado pelo pin). As decisões que o Frame deixou
 em aberto e as que as fontes não tomavam foram aprovadas pelo owner em
-2026-10-17 e estão registradas na seção 9.
+2026-10-17 e estão registradas na seção 9. A revisão 0.4 aplica as provas do
+incremento 1 do Plan, em `docs/project/verification/`: cada harness tem seu
+modo de criar o worktree, e a confiança passa a ser pré-requisito do owner.
 
 ## 1. Conceitos
 
@@ -124,7 +126,6 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
 ```json
 {
   "schema": 1,
-  "trusted_repositories": ["/Users/fael/workspaces/github/faelplg/aikm"],
   "herdr": { "session": "lab" },
   "radiant": {
     "root": "/Users/fael/workspaces/github/faelplg/radiant",
@@ -134,9 +135,6 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
 ```
 
 - `schema`: exatamente `1`. Chave desconhecida é recusa.
-- `trusted_repositories`: paths absolutos de checkouts principais. Só para
-  esses o backend passa `--trust-repository` ao herdr. Ausente ou vazio:
-  nenhum. Fora da lista, um prompt de confiança aparece como `blocked`.
 - `herdr`: lido só pelo backend herdr. `session` é opcional e segue
   `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`; presente, toda chamada ao herdr leva
   `--session <nome>`, inclusive a leitura de versão; ausente, o herdr usa a
@@ -156,17 +154,44 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 
 | Operação | herdr 0.9.0 |
 | --- | --- |
-| Criar worktree e sessão | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <id> --no-focus`, mais `--trust-repository` só para repositório confiável. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
-| Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args de modelo e esforço>` |
+| Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <id> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
+| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <id> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
+| Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args>`. No Codex, `<args>` são modelo e esforço. No Claude Code, vêm antes `--worktree <nome> --settings <hook>`, descritos abaixo. |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
 | Esperar | Ciclo próprio: a cada intervalo curto, lê `herdr api snapshot` e confere o arquivo de retorno, até cada tarefa chegar a um estado de parada ou o timeout expirar. `herdr agent wait` não serve sozinho: não vê o arquivo de retorno e, sem `--until`, só volta em `idle`, `done` ou `blocked`. |
-| Encerrar | `herdr workspace close <workspace>`; com descarte, `herdr worktree remove --workspace <workspace>` |
+| Encerrar | `herdr workspace close <workspace>`; com descarte, depois `git -C <projeto> worktree remove <path>`, sem `--force` |
 
-- No herdr 0.9.0, `worktree create` abre um workspace próprio com uma aba e um
-  pane. A "aba própria" da unidade é essa aba.
+- No herdr 0.9.0, `worktree create` e `workspace create` abrem um workspace
+  próprio com uma aba e um pane. A "aba própria" da unidade é essa aba.
 - O path do worktree é `<registro do projeto>/worktrees/<id>`, decidido antes
   do primeiro efeito para que a recusa de path existente seja verificável.
+  Path, branch e base são os mesmos nos dois harnesses; muda só quem cria o
+  worktree.
+- Por que dois modos: o Claude Code 2.1.286 confia por path exato e pararia
+  no diálogo de confiança em cada worktree novo criado pelo herdr; o Codex
+  0.166.0 confia pela raiz do repositório e cobre os worktrees dela. Sem
+  hook, o `claude --worktree` escolhe sozinho path, branch e base
+  (`origin/HEAD` ou o `HEAD` local), o que não serve à integração Radiant.
+- Worktree do Claude Code: o agente é iniciado na raiz do projeto com
+  `--worktree <nome do agente>` e `--settings <json>`. O JSON tem só um hook
+  `WorktreeCreate` de comando, que roda
+  `git -C <projeto> worktree add -b <branch> <path> <commit base>` com a
+  saída do Git no stderr e imprime só `<path>` no stdout. O Demerzel monta o
+  comando com cada argumento entre aspas simples, no escape de POSIX `sh`, e
+  grava o JSON no registro antes do primeiro efeito.
+- Pós-condição do lançamento no Claude Code: depois de `agent start`, o
+  `foreground_cwd` do agente é o path do worktree, e o branch existe e aponta
+  para o commit base. Se não, a tarefa vai para `launch-failed`, com
+  `created` listando o que existe. Assim um hook `WorktreeCreate` ou um
+  `disableAllHooks` do próprio projeto, que se combinam com o `--settings` de
+  modos que o Demerzel não conferiu, não passam despercebidos.
+- Confiança: o backend nunca passa `--trust-repository`, que no herdr 0.9.0
+  não mudou a decisão de nenhum dos dois CLIs. O owner confia uma vez o
+  checkout principal do projeto em cada CLI, como na autenticação inicial.
+  Num projeto não confiado, o Codex para no diálogo e a tarefa fica
+  `blocked`; o Claude Code com `--worktree` interativo, pela documentação,
+  sai com erro, e a tarefa vai para `launch-failed`.
 - O herdr exige nome de agente em `[a-z][a-z0-9_-]{0,31}`, único entre os
   agentes vivos. O nome é `dz-` mais os 16 primeiros hex do sha256 da chave do
   projeto seguida de `:` e do ID da tarefa: tem 19 caracteres, começa por
@@ -326,10 +351,13 @@ devolve o conteúdo atual e registra se o digest mudou.
 ### `demerzel close <id> [--discard-worktree] [--json]`
 
 Fecha o workspace do herdr e grava `closed`. Nunca apaga o branch. Com
-`--discard-worktree`, flag reservada ao humano, também remove o worktree pelo
-herdr.
+`--discard-worktree`, flag reservada ao humano, também remove o worktree com
+`git worktree remove`, sem `--force`, nos dois harnesses.
 
-- `0`: fechado.
+- `0`: fechado, e o worktree removido quando pedido.
+- `1`: fechado, mas o Git recusou remover o worktree, por exemplo por
+  alterações ou arquivos não rastreados; a mensagem traz o motivo e o
+  worktree fica.
 - `2`: ID desconhecido, ou tarefa em `working`, porque fechar mataria
   trabalho em curso.
 
@@ -383,7 +411,9 @@ Recusas que esta Spec acrescenta, todas sem efeito:
   envia ao seu provedor, então rotear é decisão de egress (ADR-0003, seção 3).
 - O Demerzel nunca faz merge, push, PR, remoção de branch ou mudança de
   escopo, nunca altera contratos e nunca responde prompts.
-- `--trust-repository` só para repositórios em `trusted_repositories`.
+- O backend nunca passa `--trust-repository` nem decide confiança. O
+  `--settings` do Claude Code leva só o hook `WorktreeCreate`, sem
+  permissões.
 - `--human-approved` e `--discard-worktree` registram uma decisão humana. O
   Demerzel não consegue distinguir quem digitou a flag; o registro guarda que
   ela foi usada.
@@ -419,14 +449,17 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    roteamento com descarte e com `hold` por capacidade, e gate de pin
    divergente.
 7. **Cenário herdr.** Backend contra o herdr real numa sessão nomeada e
-   isolada: versão, criação de worktree e workspace, snapshot, fechamento e
-   descarte. Prova também que o envio volta em `working` com o agente ainda
-   trabalhando e que outro `dispatch` do mesmo projeto não espera esse turno,
-   que `close` sem `--discard-worktree` preserva worktree e branch, e que
-   `close` em `working` é recusado.
+   isolada: versão, criação de worktree e workspace nos dois modos, snapshot,
+   fechamento e descarte. Prova também que o envio volta em `working` com o
+   agente ainda trabalhando e que outro `dispatch` do mesmo projeto não espera
+   esse turno, que `close` sem `--discard-worktree` preserva worktree e
+   branch, que o descarte com alterações sai com `1` e mantém o worktree, e
+   que `close` em `working` é recusado.
 8. **Smoke com harness real.** Claude Code e Codex lançados pelo herdr,
    pedido entregue, retorno gravado e coletado, registrado na verificação do
-   contrato.
+   contrato. No Claude Code, o worktree tem o path, o branch e o commit base
+   da tarefa, e um hook `WorktreeCreate` que imprime outro path leva a tarefa
+   a `launch-failed`.
 9. **Menor experimento.** Um contrato real do AIKM com duas unidades
    independentes, uma roteada para Claude Code e outra para Codex, com
    `collect` devolvendo os dois Completion reports e o orquestrador fazendo o
@@ -452,7 +485,7 @@ Aprovadas em 2026-10-17, junto com esta Spec.
 | Modelo interno de tarefa (Frame) | `Task` e `Request` da seção 2 |
 | Path e formato da configuração (Frame) | `$XDG_CONFIG_HOME/demerzel/config.json`, JSON, seção 2.4 |
 | Raiz do Radiant | `radiant.root` na configuração, sem padrão |
-| `--trust-repository` | Lista `trusted_repositories`, não um booleano global |
+| `--trust-repository` | Lista `trusted_repositories`, não um booleano global. Substituída na revisão 0.4 |
 | Versão mínima do herdr (Frame) | 0.9.0, aceitando versões acima |
 | Consumidor do menor experimento (Frame) | AIKM |
 | Branch e worktree no `close` | O branch nunca é apagado; `--discard-worktree` remove só o worktree |
@@ -466,3 +499,16 @@ Aprovadas em 2026-10-30, na revisão 0.3, depois da crítica do Plan 0.1:
 | --- | --- |
 | Sessão do herdr | `herdr.session` na configuração, passado como `--session` em toda chamada |
 | Espera no envio do pedido | `--until working --until blocked`, para o `dispatch` voltar quando o agente começa |
+
+Revisão 0.4, 2026-10-31, a partir da
+[prova de lançamento](verification/2026-10-30-launch-probe.md) e da
+[prova de base](verification/2026-10-31-claude-worktree-base-probe.md).
+Valem quando o owner aprovar o PR desta revisão:
+
+| Questão | Decisão |
+| --- | --- |
+| Worktree do Claude Code | Criado pelo próprio Claude Code com `--worktree` e um hook `WorktreeCreate` passado por `--settings`, com o mesmo path, branch e base do Codex |
+| Worktree do Codex | Sem mudança: `herdr worktree create` |
+| Confiança | Pré-requisito do owner, uma vez por projeto em cada CLI; sai `trusted_repositories` e o backend nunca passa `--trust-repository` |
+| Descarte do worktree | `git worktree remove` sem `--force`, igual nos dois harnesses; recusa do Git sai com `1` e mantém o worktree |
+| Lançamento do Claude Code | Pós-condição de cwd, branch e commit base; se falha, `launch-failed` |
