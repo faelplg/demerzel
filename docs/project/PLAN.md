@@ -24,20 +24,16 @@ a criação do worktree do Claude Code e tirou a confiança do Demerzel.
 - Plan 0.2 e Spec 0.3 ([faelplg/demerzel#5](https://github.com/faelplg/demerzel/pull/5))
 - 1, prova de lançamento ([faelplg/demerzel#6](https://github.com/faelplg/demerzel/pull/6), [faelplg/demerzel#7](https://github.com/faelplg/demerzel/pull/7)): passou com um modo de worktree por harness. Codex com `herdr worktree create`, 0 de 5 intervenções; Claude Code com `--worktree` e hook `WorktreeCreate`, 0 de 5. Com o worktree do herdr, o Claude Code pedia confiança em 5 de 5, e isso levou à Spec 0.4.
 - 2, stack ([faelplg/demerzel#8](https://github.com/faelplg/demerzel/pull/8)): Bun 1.4.2, TypeScript 7.0.2 estrito, `bun run check` e o entrypoint que só responde `--version`.
+- 3, núcleo ([faelplg/demerzel#9](https://github.com/faelplg/demerzel/pull/9), [faelplg/demerzel#10](https://github.com/faelplg/demerzel/pull/10), [faelplg/demerzel#11](https://github.com/faelplg/demerzel/pull/11), [faelplg/demerzel#12](https://github.com/faelplg/demerzel/pull/12)): TC-0001 em DONE, com 142 testes do núcleo e quatro verificações independentes, três no Codex e a última, com PASS, no Antigravity.
 
 ## Próximos
 
-Do incremento 3 em diante, cada um termina com `bun run check` passando e a
+Do incremento 4 em diante, cada um termina com `bun run check` passando e a
 evidência listada. "Contrato" marca incrementos com risco real, que precisam
 de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-3. **Núcleo.** Contrato [TC-0001](contracts/TC-0001-core.md). `src/core/`
-   com `Task`, `Request`, montador do pedido, configuração, registro com lock, ciclo de vida, recusas do núcleo e
-   os seis comandos sobre uma interface de backend, com o backend falso em
-   memória. Evidência: verificações 1, 2 e 5, e a parte do núcleo das
-   verificações 3 e 4. A suíte 1 roda sem `python3` no `PATH`.
 4. **Backend herdr e smoke.** Contrato. Implementação herdr da interface,
    sessão pela configuração, tabela de lançamento de Claude Code e Codex,
    `resume` para startup bloqueado. A entrada é uma tarefa já resolvida,

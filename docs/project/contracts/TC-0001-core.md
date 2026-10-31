@@ -6,8 +6,8 @@ Codex em `gpt-6-astra`, papel `radiant-grill`: doze objeções, todas aceitas
 pelo owner e aplicadas aqui e na Spec 0.6, antes de qualquer execução
 **Project:** `demerzel`
 **Iteration:** Plan 0.3, incremento 3
-**Status:** `READY`
-**Lifecycle:** `active` desde 2026-10-31, por decisão do owner; o `ACTIVE.md` aponta para ele
+**Status:** `DONE`
+**Lifecycle:** `done` em 2026-10-31, com o merge do PR do Build; evidência em `docs/project/verification/2026-10-31-tc-0001-core.md`
 **Owner:** Fael (humano); Build por um agente no papel `radiant-dev`;
 orquestrador responsável pela crítica independente
 **Risk tier:** `2`. Registro durável, lock e o contrato que os incrementos 4 e
