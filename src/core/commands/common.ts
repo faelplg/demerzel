@@ -160,10 +160,12 @@ export function transition(registry: Registry, record: TaskRecord, lifecycle: Ta
   trace?.(`wrote:${lifecycle}`);
 }
 
-// The workspace label the launch used. A recovery looks a workspace up by it
+// Spec 2.5, revision 0.8: the task ID, a space and the agent name. The ID is
+// what the human reads; the agent name makes the label unique across
+// projects that share the backend. A recovery looks a workspace up by it
 // only when its ID was never recorded.
-export function workspaceLabel(record: TaskRecord): string {
-  return record.id;
+export function workspaceLabel(record: Pick<TaskRecord, "id" | "agent_name">): string {
+  return `${record.id} ${record.agent_name}`;
 }
 
 // Spec 2.3: a command that holds the lock and talks to the backend finds a

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { close, collect, dispatch, resume, status } from "../../src/core/index.ts";
+import { workspaceLabel } from "../../src/core/commands/common.ts";
 import { FakeBackend } from "../../src/core/fake-backend.ts";
 import { resolveProject } from "../../src/core/project.ts";
 import type { TaskRecord } from "../../src/core/types.ts";
@@ -187,5 +188,32 @@ describe("status during an active dispatch (emenda 1)", () => {
     expect(s.envelope.tasks[0]?.lifecycle).toBe("launching");
     expect(s.envelope.tasks[0]?.interrupted).toBe(false);
     expect(s.code).toBe(0);
+  });
+});
+
+describe("workspace identity across projects (Spec 2.5, revision 0.8)", () => {
+  // Protects: a recovery that has only the label never takes another
+  // project's workspace for the same task ID. Fails if the label goes back
+  // to the bare task ID, or a recorded workspace ID is overridden.
+  test("two projects with the same task ID", async () => {
+    const other = sandbox();
+    try {
+      const be = new FakeBackend(sb.env, { stateFile });
+      const first = await dispatch({ task: task(), humanApproved: false }, context(other, be));
+      const firstWorkspace = first.envelope.tasks[0]?.backend_ids.workspace ?? "missing";
+
+      const child = spawnChild(sb, stateFile, { name: "k", command: "dispatch", input: task(), killOn: "wrote:launching" });
+      await child.proc.exited;
+      const mine = be.addWorkspace(workspaceLabel(record()));
+
+      const x = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
+      expect(x.code).toBe(0);
+      expect(record().backend_ids.workspace).toBe(mine);
+      const closed = be.effectCalls().filter((c) => c.op === "closeWorkspace").map((c) => c.args["workspace"]);
+      expect(closed).toEqual([mine]);
+      expect(be.snapshotNow().workspaces.map((w) => w.id)).toEqual([firstWorkspace]);
+    } finally {
+      other.cleanup();
+    }
   });
 });

@@ -5,7 +5,7 @@ import { agentName } from "../project.ts";
 import { entry } from "../registry.ts";
 import { buildRequest, checkBranchName, checkPointers, overlaps, parseTask, resolveBase } from "../task.ts";
 import type { TaskRecord } from "../types.ts";
-import { done, isLock, isOutcome, isProbe, lock, open, planRecovery, reachBackend, refuse, transition, view, type Context, type Outcome } from "./common.ts";
+import { done, isLock, isOutcome, isProbe, lock, open, planRecovery, reachBackend, refuse, transition, view, workspaceLabel, type Context, type Outcome } from "./common.ts";
 
 const C = "dispatch";
 
@@ -80,7 +80,7 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     const plan: LaunchPlan = {
       taskId: task.id,
       agentName: name,
-      label: task.id,
+      label: workspaceLabel({ id: task.id, agent_name: name }),
       harness: task.harness,
       model: task.model,
       effort: task.effort ?? null,

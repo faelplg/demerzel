@@ -105,6 +105,15 @@ export class FakeBackend implements Backend {
     this.load().agents.push({ name, status, pane: `external:${name}` });
     this.save();
   }
+  // A workspace the backend created whose ID the core never recorded, as when
+  // the process dies inside the backend call.
+  addWorkspace(label: string): string {
+    const state = this.load();
+    const n = state.next++;
+    state.workspaces.push({ id: `w${n}`, label, tab: `w${n}:t1`, pane: `w${n}:p1` });
+    this.save();
+    return `w${n}`;
+  }
   dropAgent(name: string): void {
     const state = this.load();
     state.agents = state.agents.filter((a) => a.name !== name);
