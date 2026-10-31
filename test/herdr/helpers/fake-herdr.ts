@@ -20,6 +20,7 @@ type Script = {
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;
   closeFails: boolean;
+  closeAnswer: "ok" | "empty";
   createAnswer: "ok" | "garbage-after" | "empty-noop";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -133,6 +134,7 @@ if (group === "workspace" && verb === "close") {
   const w = state.workspaces.find((x) => x.id === id);
   if (w === undefined) fail("workspace_not_found", `workspace ${id} not found`, "cli:workspace:close");
   if (s.closeFails) fail("close_failed", `workspace ${id} could not be closed`, "cli:workspace:close");
+  if (s.closeAnswer === "empty") ok({}, "cli:workspace:close");
   state.workspaces = state.workspaces.filter((x) => x.id !== id);
   state.agents = state.agents.filter((a) => a.workspace !== id);
   save();

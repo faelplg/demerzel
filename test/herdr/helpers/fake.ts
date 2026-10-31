@@ -17,6 +17,7 @@ export type FakeHerdrScript = {
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;
   closeFails: boolean;
+  closeAnswer: "ok" | "empty";
   createAnswer: "ok" | "garbage-after" | "empty-noop";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -33,6 +34,7 @@ export const defaultScript: FakeHerdrScript = {
   extraAgents: [],
   paneBusy: 0,
   closeFails: false,
+  closeAnswer: "ok",
   createAnswer: "ok",
   extraWorkspaces: [],
 };

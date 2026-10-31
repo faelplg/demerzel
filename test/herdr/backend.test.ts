@@ -129,6 +129,28 @@ describe("snapshot (H3)", () => {
 describe("prepare (H4)", () => {
   // Protects: Spec 2.5, revision 0.9: only checked effort levels pass. Fails
   // if an unchecked level reaches the CLI or a checked one is dropped.
+  // Protects: every checked level of both harnesses reaches the CLI with its
+  // flag (finding Q4). Fails if a checked level is dropped from the table.
+  test.each([
+    ...["low", "medium", "high", "xhigh", "max"].map((e) => ["claude-code", e, ["--effort", e]] as const),
+    ...["minimal", "low", "medium", "high", "xhigh"].map((e) => ["codex", e, ["-c", `model_reasoning_effort=${e}`]] as const),
+  ])("%s %s is applied", async (harness, effort, flags) => {
+    const be = herdr();
+    const p = plan({ harness, effort, agentName: "dz-h000000000000001", branch: `radiant/e-${harness}-${effort}`, worktreePath: join(sb.root, "wt", `e-${harness}-${effort}`) });
+    expect(be.prepare(p).effort).toEqual({ applied: effort, omittedReason: null });
+    await launch(be, p);
+    const start = fake.calls().find((c) => c[2] === "agent" && c[3] === "start") ?? [];
+    expect(start.slice(-flags.length)).toEqual([...flags]);
+  });
+
+  // Protects: names inherited by every object are not harnesses (finding
+  // Q3). Fails if constructor, toString or __proto__ pass as supported.
+  test.each(["constructor", "toString", "__proto__"])("%s is not a harness", (name) => {
+    const be = herdr();
+    expect(be.supportsHarness(name)).toBe(false);
+    expect(be.prepare(plan({ harness: name, effort: "low" })).effort.applied).toBeNull();
+  });
+
   test("effort levels", () => {
     const be = herdr();
     expect(be.prepare(plan({ effort: "xhigh" })).effort).toEqual({ applied: "xhigh", omittedReason: null });
@@ -330,6 +352,17 @@ describe("send and close (H8, H9)", () => {
     const error = await be.send("dz-0123456789abcdef", "PEDIDO-SECRETO-91c2").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(BackendError);
     expect(String((error as Error).message)).not.toContain("PEDIDO-SECRETO-91c2");
+  });
+
+  // Protects: H9, an empty success is not a close (finding Q2 of the fourth
+  // verification). Fails if the workspace stays open while close reports it
+  // closed.
+  test("an empty close answer is not a close", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ closeAnswer: "empty" });
+    await expect(be.closeWorkspace("w1")).rejects.toThrow("confirmação sem type ok");
+    expect(fake.state().workspaces).toHaveLength(1);
   });
 
   test("close", async () => {

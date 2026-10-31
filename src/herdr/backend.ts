@@ -83,8 +83,10 @@ export class HerdrBackend implements Backend {
     this.herdr = new Herdr(env, config.session);
   }
 
+  // Own keys only: a name such as constructor or __proto__ exists on every
+  // object and is not a harness.
   supportsHarness(harness: string): boolean {
-    return harness in KIND;
+    return Object.hasOwn(KIND, harness);
   }
 
   async probe(): Promise<Probe> {
@@ -139,7 +141,7 @@ export class HerdrBackend implements Backend {
   }
 
   prepare(plan: LaunchPlan): Preparation {
-    const allowed = EFFORT[plan.harness] ?? [];
+    const allowed = Object.hasOwn(EFFORT, plan.harness) ? (EFFORT[plan.harness] ?? []) : [];
     const effort =
       plan.effort === null
         ? { applied: null, omittedReason: null }
@@ -196,7 +198,7 @@ export class HerdrBackend implements Backend {
 
   async launch(plan: LaunchPlan, preparation: Preparation, onCreated: (resource: Created) => void): Promise<LaunchOutcome> {
     const ids: BackendIds = { workspace: null, tab: null, pane: null };
-    const kind = KIND[plan.harness];
+    const kind = Object.hasOwn(KIND, plan.harness) ? KIND[plan.harness] : undefined;
     if (kind === undefined) return { kind: "failed", reason: `harness sem lançamento no backend herdr: ${plan.harness}`, ids };
 
     // A resource enters the registry once, and only when it is confirmed.
@@ -342,8 +344,14 @@ export class HerdrBackend implements Backend {
     return fail(`${reply.code}: ${reply.message}`);
   }
 
+  // herdr 0.9.0 confirms a close with result.type "ok". Any other success is
+  // not a close; a workspace that is already gone is.
   async closeWorkspace(workspaceId: string): Promise<void> {
     const reply = this.herdr.run(["workspace", "close", workspaceId]);
-    if (!reply.ok && reply.code !== "workspace_not_found") throw new BackendError("herdr workspace close", `${reply.code}: ${reply.message}`);
+    if (reply.ok) {
+      if (text(reply.result, "type") === "ok") return;
+      throw new BackendError("herdr workspace close", `confirmação sem type ok (${text(reply.result, "type") ?? "ausente"})`);
+    }
+    if (reply.code !== "workspace_not_found") throw new BackendError("herdr workspace close", `${reply.code}: ${reply.message}`);
   }
 }
