@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { collect, close, dispatch, resume, type Outcome } from "../../src/core/index.ts";
+import { collect, close, dispatch, resume, status, type Outcome } from "../../src/core/index.ts";
 import type { FakeBackend } from "../../src/core/fake-backend.ts";
 import { git } from "../../src/core/git.ts";
 import { ProjectLock } from "../../src/core/lock.ts";
@@ -128,6 +128,16 @@ describe("verification 3, core part: every core refusal is without effect", () =
     } finally {
       holder?.release();
     }
+  });
+
+  // Protects: an ID outside the format never becomes a path. Fails if
+  // `../outside` reads a JSON file outside tasks/ instead of task-not-found.
+  test("task-not-found for an ID that would leave tasks/", async () => {
+    const be = backend(sb);
+    mkdirSync(projectDir(), { recursive: true });
+    writeFileSync(join(projectDir(), "outside.json"), "{não é JSON");
+    await expectRefusal(be, "task-not-found", () => status({ ids: ["../outside"], all: false }, context(sb, be)));
+    await expectRefusal(be, "task-not-found", () => resume("../outside", context(sb, be)));
   });
 
   test("task-not-found", async () => {

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { validateId } from "./task.ts";
 import type { HistoryEntry, TaskRecord } from "./types.ts";
 
 // Spec 2.3: one file per task in tasks/<id>.json, written to a temporary file
@@ -32,10 +33,13 @@ export class Registry {
   // True when a file answers for this ID. On a case-insensitive file system
   // an ID that only differs in case answers too, and counts as taken.
   taken(id: string): boolean {
-    return existsSync(this.file(id));
+    return validateId(id).ok && existsSync(this.file(id));
   }
 
+  // An ID outside the format of Spec 2.1 never becomes a path, so `..` can
+  // not reach a file outside tasks/.
   read(id: string): TaskRecord | null {
+    if (!validateId(id).ok) return null;
     const path = this.file(id);
     if (!existsSync(path)) return null;
     const record = JSON.parse(readFileSync(path, "utf8")) as TaskRecord;

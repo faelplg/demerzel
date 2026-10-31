@@ -78,6 +78,9 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
     if (workspace !== null && snapshot.workspaces.some((w) => w.id === workspace)) {
       await ctx.backend.closeWorkspace(workspace);
     }
+    // The human decision goes in with `closed`, so no write ever shows the
+    // task closed for discard without the flag.
+    if (input.discardWorktree) record.flags.discard_worktree = true;
     transition(registry, record, "closed", { workspace_closed: workspace }, ctx.trace);
     if (!input.discardWorktree) return done(C, 0, [view(record, null)]);
     const result = discard(record, registry, project.mainCheckout, ctx);

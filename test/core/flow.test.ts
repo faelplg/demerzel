@@ -40,6 +40,9 @@ describe("verification 1: dispatch to close with the fake backend", () => {
       const w = await wait({ ids: ["TC-0099.1"], timeoutMs: 1000 }, ctx);
       expect(w.code).toBe(0);
       expect(w.envelope.tasks[0]?.report).toBe("present");
+      // A finished task, agent idle with the return present, needs no
+      // attention.
+      expect((await status({ ids: ["TC-0099.1"], all: false }, ctx)).code).toBe(0);
 
       const c = await collect("TC-0099.1", ctx);
       expect(c.code).toBe(0);

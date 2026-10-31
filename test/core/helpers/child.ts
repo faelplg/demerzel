@@ -46,6 +46,6 @@ const outcome =
       ? await collect(args.input as string, ctx)
       : args.command === "resume"
         ? await resume(args.input as string, ctx)
-        : await close({ id: args.input as string, discardWorktree: false }, ctx);
+        : await close(typeof args.input === "string" ? { id: args.input, discardWorktree: false } : (args.input as { id: string; discardWorktree: boolean }), ctx);
 appendFileSync(events, `exit:${outcome.code}\n`);
 writeFileSync(join(args.barrier, `${args.name}.result.json`), JSON.stringify(outcome));

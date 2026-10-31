@@ -6,6 +6,7 @@ import { FakeBackend } from "../../src/core/fake-backend.ts";
 import { git } from "../../src/core/git.ts";
 import { resolveProject } from "../../src/core/project.ts";
 import type { TaskRecord } from "../../src/core/types.ts";
+import { spawnChild } from "./helpers/processes.ts";
 import { backend, context, sandbox, task, writeReport, type Sandbox } from "./helpers/sandbox.ts";
 
 // Findings of the third independent verification of TC-0001.
@@ -150,6 +151,19 @@ describe("persisted fake backend (R12)", () => {
 });
 
 describe("an interrupted discard keeps the human decision (R17)", () => {
+  // Protects: the flag is recorded together with `closed`. Fails if a kill
+  // between the two writes leaves a closed task without the flag.
+  test("killed right after closed is written", async () => {
+    const stateFile = join(sb.root, "fake.json");
+    const be = new FakeBackend(sb.env, { stateFile, script: { statusAfterSend: "idle" } });
+    await dispatch({ task: task(), humanApproved: false }, context(sb, be));
+    const child = spawnChild(sb, stateFile, { name: "c", command: "close", input: { id: "TC-0099.1", discardWorktree: true }, killOn: "wrote:closed" });
+    await child.proc.exited;
+    expect(child.proc.signalCode).toBe("SIGKILL");
+    expect(record().lifecycle).toBe("closed");
+    expect(record().flags.discard_worktree).toBe(true);
+  });
+
   // Protects: the --discard-worktree decision is written before git removes
   // the worktree, and a repeated discard finishes an interrupted one. Fails
   // if the flag is only written after the effect.
