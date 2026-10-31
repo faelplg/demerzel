@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
 Revisão do Plan: 0.3, 2026-10-31
-Spec: [revisão 0.5](SPEC.md)
+Spec: [revisão 0.6](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
@@ -81,6 +81,7 @@ um o lista no contrato como blocker externo.
 
 | Pré-requisito | Dono | Antes do |
 | --- | --- | --- |
+| Servidor do herdr rodando na sessão `lab`, para a crítica independente | Owner | 3 |
 | Servidor do herdr rodando na sessão `lab` | Owner | 4 |
 | Claude Code e Codex autenticados no terminal, conferido antes de cada prova | Owner | 4 |
 | Checkout principal do projeto confiado uma vez no Claude Code e no Codex | Owner | 4 |
