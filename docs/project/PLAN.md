@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
 Revisão do Plan: 0.3, 2026-10-31
-Spec: [revisão 0.8](SPEC.md)
+Spec: [revisão 0.9](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
@@ -34,7 +34,8 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-4. **Backend herdr e smoke.** Contrato. Implementação herdr da interface,
+4. **Backend herdr e smoke.** Contrato [TC-0002](contracts/TC-0002-herdr-backend.md).
+   Implementação herdr da interface,
    sessão pela configuração, tabela de lançamento de Claude Code e Codex,
    `resume` para startup bloqueado. A entrada é uma tarefa já resolvida,
    escrita à mão num arquivo de fixture interno aos testes, sem Radiant.
@@ -113,8 +114,10 @@ A Spec deixa para o Plan conferir a superfície externa. Entre 2026-10-29 e
 - Codex 0.166.0, atualizado da 0.163.0 durante o incremento 1: `--model` e
   `-c model_reasoning_effort=<nível>` com `minimal`, `low`, `medium`, `high` e
   `xhigh` iniciaram sem erro. A confiança vale para a raiz do repositório e
-  cobre worktrees novos. O Demerzel não valida o nível do Codex e, se o CLI
-  recusar, segue a regra do
+  cobre worktrees novos. Desde a Spec 0.9, o Demerzel só passa os níveis
+  conferidos aqui e omite os outros com o motivo, antes do primeiro efeito,
+  no espírito da regra do
   [roteamento](https://github.com/faelplg/radiant/blob/6b129752b6687598e9bc3582c1c89c7ee6d71aee/docs/routing.md):
-  registra e omite o esforço.
+  registra e omite o esforço. Um nível novo entra conferindo a versão
+  instalada do CLI e atualizando esta lista e a Spec 2.5.
 - Bun 1.4.2 instalado.
