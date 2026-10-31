@@ -1,2 +1,5 @@
 # Radiant: relatórios de manutenção e retornos de unidades despachadas
 .radiant/
+
+# Dependências de desenvolvimento do Bun
+node_modules/
