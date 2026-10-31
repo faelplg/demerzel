@@ -236,7 +236,7 @@ try {
   server?.kill();
   const worktrees = git(repo, ["worktree", "list", "--porcelain"], process.env).stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice(9));
   const branches = git(repo, ["for-each-ref", "--format=%(refname:short)", "refs/heads/smoke/"], process.env).stdout.split("\n").filter(Boolean);
-  rmSync(join(configHome, "herdr"), { recursive: true, force: true });
+  rmSync(configHome, { recursive: true, force: true });
   report["leftovers"] = { worktrees: worktrees.filter((w) => w !== repo), branches, registry: stateHome };
   save();
   say(`Relatório em ${out}`);

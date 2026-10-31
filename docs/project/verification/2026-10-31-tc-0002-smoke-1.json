@@ -1,0 +1,204 @@
+{
+  "run": "2610312033",
+  "session": "dz-smoke-6172df",
+  "repo": "/Users/fael/workspaces/demerzel-smoke",
+  "paths": {
+    "state": "/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN",
+    "config": "/tmp/dz-8wWdbQ",
+    "sessionDir": "/tmp/dz-8wWdbQ/herdr/sessions/dz-smoke-6172df",
+    "report": "/private/tmp/claude-501/-Users-fael-workspaces-github-faelplg-radiant--claude-worktrees-lavish-axi-evaluation-521fc0/62f9f881-5e28-4e6d-88e8-029256951a6f/scratchpad/smoke-report.json"
+  },
+  "versions": {
+    "herdr": "herdr 0.9.0",
+    "claude": "2.1.286 (Claude Code)",
+    "codex": "codex-cli 0.166.0"
+  },
+  "launches": [
+    {
+      "id": "SMK-2610312033-x1",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5670,
+      "refusal": null,
+      "intervention_before_delivery": false
+    },
+    {
+      "id": "SMK-2610312033-x2",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5396,
+      "refusal": null,
+      "intervention_before_delivery": false
+    },
+    {
+      "id": "SMK-2610312033-x3",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5432,
+      "refusal": null,
+      "intervention_before_delivery": false
+    },
+    {
+      "id": "SMK-2610312033-x4",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5117,
+      "refusal": null,
+      "intervention_before_delivery": false
+    },
+    {
+      "id": "SMK-2610312033-x5",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5101,
+      "refusal": null,
+      "intervention_before_delivery": false
+    },
+    {
+      "id": "SMK-2610312033-c1",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5625,
+      "refusal": null,
+      "intervention_before_delivery": false
+    },
+    {
+      "id": "SMK-2610312033-c2",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5092,
+      "refusal": null,
+      "intervention_before_delivery": false
+    },
+    {
+      "id": "SMK-2610312033-c3",
+      "harness": "claude-code",
+      "code": 1,
+      "lifecycle": "launch-failed",
+      "request_sent": false,
+      "agent": null,
+      "dispatch_ms": 588,
+      "refusal": null,
+      "intervention_before_delivery": true
+    },
+    {
+      "id": "SMK-2610312033-c4",
+      "harness": "claude-code",
+      "code": 1,
+      "lifecycle": "launch-failed",
+      "request_sent": false,
+      "agent": null,
+      "dispatch_ms": 589,
+      "refusal": null,
+      "intervention_before_delivery": true
+    },
+    {
+      "id": "SMK-2610312033-c5",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5637,
+      "refusal": null,
+      "intervention_before_delivery": false
+    }
+  ],
+  "concurrency": [
+    {
+      "harness": "codex",
+      "first": {
+        "id": "SMK-2610312033-xlong1",
+        "code": 0,
+        "launched_at": "2026-10-31T20:34:43.483Z"
+      },
+      "second": {
+        "id": "SMK-2610312033-xlong2",
+        "code": 0,
+        "launched_at": "2026-10-31T20:34:48.588Z"
+      },
+      "first_agent_after_second": "working",
+      "close_first": "task-working",
+      "observed_at": "2026-10-31T20:34:48.669Z"
+    },
+    {
+      "harness": "claude-code",
+      "first": {
+        "id": "SMK-2610312033-clong1",
+        "code": 0,
+        "launched_at": "2026-10-31T20:34:53.739Z"
+      },
+      "second": {
+        "id": "SMK-2610312033-clong2",
+        "code": 0,
+        "launched_at": "2026-10-31T20:34:58.828Z"
+      },
+      "first_agent_after_second": "working",
+      "close_first": "task-working",
+      "observed_at": "2026-10-31T20:34:58.915Z"
+    }
+  ],
+  "returns": [],
+  "postcondition": {
+    "id": "SMK-2610312033-cpost",
+    "code": 1,
+    "lifecycle": "launch-failed",
+    "reason": {
+      "reason": "pós-condição do lançamento no Claude Code: cwd do agente /private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/elsewhere não é o worktree /var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-cpost"
+    }
+  },
+  "leftovers": {
+    "worktrees": [
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-c1",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-c2",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-c5",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-clong1",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-clong2",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-cpost",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-x1",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-x2",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-x3",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-x4",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-x5",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-xlong1",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN/demerzel/projects/demerzel-smoke-cfbe09784b24/worktrees/SMK-2610312033-xlong2"
+    ],
+    "branches": [
+      "smoke/SMK-2610312033-c1",
+      "smoke/SMK-2610312033-c2",
+      "smoke/SMK-2610312033-c5",
+      "smoke/SMK-2610312033-clong1",
+      "smoke/SMK-2610312033-clong2",
+      "smoke/SMK-2610312033-cpost",
+      "smoke/SMK-2610312033-x1",
+      "smoke/SMK-2610312033-x2",
+      "smoke/SMK-2610312033-x3",
+      "smoke/SMK-2610312033-x4",
+      "smoke/SMK-2610312033-x5",
+      "smoke/SMK-2610312033-xlong1",
+      "smoke/SMK-2610312033-xlong2"
+    ],
+    "registry": "/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-L0sDiN"
+  }
+}

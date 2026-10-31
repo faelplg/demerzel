@@ -1,0 +1,18 @@
+ok   sessão parada: backend-unavailable com detalhe  "servidor do herdr parado na sessão dz-test-4ea305b4"
+ok   sondagem do herdr real  {"version":"0.9.0"}
+ok   codex: launch-failed pelo agent start recusado  {"reason":"herdr agent start: scenario_stop: o cenário recusa agent start"}
+ok   codex: recursos em created  ["worktree","workspace","tab","pane"]
+ok   codex: worktree e branch no commit base
+ok   claude-code: launch-failed sem worktree  {"reason":"herdr agent start: scenario_stop: o cenário recusa agent start"}
+ok   claude-code: recursos em created  ["workspace","tab","pane"]
+ok   label com espaço lido de volta no snapshot real  ["project","TC-0099.1 dz-9d10c340051cc3f7","TC-0099.2 dz-19c80ceca98fc8d8"]
+ok   snapshot do backend com aba e pane raiz  {"id":"w2","label":"TC-0099.1 dz-9d10c340051cc3f7","tab":"w2:t1","pane":"w2:p1"}
+ok   close sem descarte fecha o workspace real
+ok   close sem descarte preserva worktree e branch
+ok   close do segundo modo
+ok   closeWorkspace sobre workspace que já não existe
+ok   descarte com alterações sai com 1 e mantém o worktree  {"removed":false,"reason":"fatal: '/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-core-uI9SW5/state/demerzel/projects/project-bef73fd43c81/worktrees/TC-0099.1' contains modified or untracked files, use --force to delete it"}
+ok   descarte repetido remove o worktree e mantém o branch
+ok   servidor caindo entre sondagem e snapshot: backend-unavailable  "o backend falhou: herdr api snapshot: server_not_running: no herdr server is running at /tmp/dz-jGL9WZ/herdr/sessions/dz-test-4ea305b4/herdr.sock; run `herdr session attach dz-test-4ea305b4` to start or attach it"
+{"session":"dz-test-4ea305b4","sessionDir":"/tmp/dz-jGL9WZ/herdr/sessions/dz-test-4ea305b4","sessionDirRemoved":true,"state":"/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-core-uI9SW5/state","config":"/tmp/dz-jGL9WZ","herdr":"/opt/homebrew/bin/herdr","ownerSessionsTouched":false}
+16/16 conferências passaram
