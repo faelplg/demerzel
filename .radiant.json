@@ -8,7 +8,7 @@
   "contracts": "docs/project/contracts",
   "active_contract": "docs/project/contracts/ACTIVE.md",
   "adrs": null,
-  "verification": null,
+  "verification": "docs/project/verification",
   "learning": null,
   "maintenance": ".radiant/maintenance"
 }
