@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { HistoryEntry, TaskRecord } from "./types.ts";
 
@@ -50,15 +50,27 @@ export class Registry {
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
+  // The rename only happens after every byte reached the temporary file. A
+  // short write (a full disk, a file size limit) leaves the final file as it
+  // was and throws.
   write(record: TaskRecord): void {
     const tmp = join(this.tasksDir, `.${record.id}.${randomBytes(6).toString("hex")}.tmp`);
+    const data = Buffer.from(`${JSON.stringify(record, null, 2)}\n`);
     const fd = openSync(tmp, "wx", 0o600);
     try {
-      writeSync(fd, `${JSON.stringify(record, null, 2)}\n`);
+      let offset = 0;
+      while (offset < data.length) {
+        const written = writeSync(fd, data, offset, data.length - offset);
+        if (written <= 0) throw new Error(`gravação incompleta de ${tmp}`);
+        offset += written;
+      }
       fsyncSync(fd);
-    } finally {
+    } catch (error) {
       closeSync(fd);
+      rmSync(tmp, { force: true });
+      throw error;
     }
+    closeSync(fd);
     renameSync(tmp, this.file(record.id));
   }
 }

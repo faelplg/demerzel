@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sandbox, type Sandbox } from "./helpers/sandbox.ts";
 
@@ -40,5 +40,25 @@ describe("atomic task files (R4)", () => {
     await writer.exited;
     expect(reads).toBeGreaterThan(50);
     expect(broken).toBe(0);
+  });
+
+  // Protects: a write cut in the middle, as by a crash or a full disk,
+  // leaves the previous file whole. The file size limit makes the cut
+  // deterministic, which a race between processes is not on APFS. Fails if
+  // Registry.write writes in place, or renames a short temporary file.
+  test("a write cut by the file size limit keeps the previous record", async () => {
+    const dir = join(sb.root, "registry");
+    const writer = Bun.spawn(["/bin/sh", "-c", 'ulimit -f 128; exec "$@"', "sh", process.execPath, join(import.meta.dir, "helpers", "writer-once.ts"), dir], {
+      stdout: "ignore",
+      stderr: "pipe",
+      env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
+    });
+    const code = await writer.exited;
+    const stderr = await new Response(writer.stderr).text();
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("EFBIG");
+    const tasks = join(dir, "tasks");
+    expect(readdirSync(tasks)).toEqual(["TC-0099.1.json"]);
+    expect(JSON.parse(readFileSync(join(tasks, "TC-0099.1.json"), "utf8")).marker).toBe("first");
   });
 });
