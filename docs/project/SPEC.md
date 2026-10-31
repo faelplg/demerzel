@@ -131,8 +131,8 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   - `recorded`: `launch-failed` com `created` vazio, porque nenhum efeito
     começou;
   - `launching`: confere no Git e no snapshot o branch, o worktree, o
-    workspace pelo label e o agente pelo nome, e grava em `created` o que
-    existe. Com o agente vivo, a tarefa vai para `launched`, com
+    workspace pelo ID gravado ou, sem ele, pelo label, com a aba e o pane
+    dele, e o agente pelo nome, e grava em `created` o que existe. Com o agente vivo, a tarefa vai para `launched`, com
     `request_sent: unknown` se `send_started_at` foi gravado e `false` se não;
     sem agente, para `launch-failed`;
   - nada é relançado nem reenviado sozinho.
