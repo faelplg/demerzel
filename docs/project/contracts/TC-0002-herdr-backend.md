@@ -7,7 +7,7 @@ pelo owner e aplicadas aqui e na Spec 0.9, antes de qualquer execução
 **Project:** `demerzel`
 **Iteration:** Plan 0.3, incremento 4
 **Status:** `READY`
-**Lifecycle:** `ready`, não ativo até o owner apontar o `ACTIVE.md` para ele
+**Lifecycle:** `active` desde 2026-10-31, por decisão do owner; o `ACTIVE.md` aponta para ele
 **Owner:** Fael (humano); Build por um agente no papel `radiant-dev`;
 orquestrador responsável pelo smoke com harness real e pela crítica
 independente
