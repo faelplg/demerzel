@@ -34,7 +34,8 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-4. **Backend herdr e smoke.** Contrato. Implementação herdr da interface,
+4. **Backend herdr e smoke.** Contrato [TC-0002](contracts/TC-0002-herdr-backend.md).
+   Implementação herdr da interface,
    sessão pela configuração, tabela de lançamento de Claude Code e Codex,
    `resume` para startup bloqueado. A entrada é uma tarefa já resolvida,
    escrita à mão num arquivo de fixture interno aos testes, sem Radiant.
