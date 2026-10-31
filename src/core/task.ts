@@ -58,7 +58,7 @@ export function parseTask(input: unknown): { ok: true; task: Task } | { ok: fals
 
   const id = validateId(t["id"]);
   if (!id.ok) return id;
-  for (const key of ["harness", "model", "branch", "returnPath"] as const) {
+  for (const key of ["harness", "model", "branch"] as const) {
     const value = t[key];
     if (typeof value !== "string" || value === "" || /\s/.test(value)) {
       return { ok: false, message: `"${key}" precisa ser texto sem espaços` };
@@ -80,8 +80,10 @@ export function parseTask(input: unknown): { ok: true; task: Task } | { ok: fals
     if (dep === t["id"]) return { ok: false, message: "a tarefa não pode depender de si mesma" };
   }
   if (new Set(t["dependsOn"]).size !== t["dependsOn"].length) return { ok: false, message: "dependência repetida" };
-  const returnPath = t["returnPath"] as string;
-  if (segments(returnPath) === null || returnPath.endsWith("/")) {
+  // Spec 2.1: a relative path inside the worktree. Spaces are allowed;
+  // control characters are not, so the path stays on one line of the request.
+  const returnPath = t["returnPath"];
+  if (typeof returnPath !== "string" || /[\u0000-\u001f\u007f]/.test(returnPath) || segments(returnPath) === null || returnPath.endsWith("/")) {
     return { ok: false, message: `"returnPath" precisa ser um arquivo relativo ao worktree` };
   }
   if (t["approval"] !== undefined && t["approval"] !== "human") return { ok: false, message: `"approval" só aceita "human"` };

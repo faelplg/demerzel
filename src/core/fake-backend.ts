@@ -42,7 +42,7 @@ export type FakeCall = { op: string; effect: boolean; args: Record<string, unkno
 
 type State = {
   next: number;
-  workspaces: Array<{ id: string; label: string; tab: string; pane: string }>;
+  workspaces: Array<{ id: string; label: string; tab: string | null; pane: string | null }>;
   agents: Array<{ name: string; status: SnapshotAgentStatus; pane: string }>;
   calls: FakeCall[];
   script: FakeScript;
@@ -113,6 +113,14 @@ export class FakeBackend implements Backend {
     state.workspaces.push({ id: `w${n}`, label, tab: `w${n}:t1`, pane: `w${n}:p1` });
     this.save();
     return `w${n}`;
+  }
+  // The workspace stays, its pane does not: an agent entry left without a
+  // live pane.
+  dropPane(workspaceId: string): void {
+    const workspace = this.load().workspaces.find((w) => w.id === workspaceId);
+    if (workspace === undefined) throw new Error(`no fake workspace ${workspaceId}`);
+    workspace.pane = null;
+    this.save();
   }
   dropAgent(name: string): void {
     const state = this.load();

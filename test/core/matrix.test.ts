@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { collect, close, dispatch, resume, status, wait } from "../../src/core/index.ts";
 import type { FakeBackend } from "../../src/core/fake-backend.ts";
@@ -75,7 +75,67 @@ describe("observed state in two fields (R10)", () => {
   });
 });
 
+describe("reconciliation and the return file (R10, R15)", () => {
+  // Protects: Spec 2.3, an agent whose pane is missing is lost, and resume
+  // refuses it without effect. Fails if the agent entry alone is trusted.
+  test("pane missing with the agent entry still there", async () => {
+    const be = backend(sb, { startup: "blocked" });
+    const { ctx, t } = await launched(be);
+    be.setAgentStatus(t.agent_name, "idle");
+    be.dropPane(t.backend_ids.workspace ?? "");
+    expect((await status({ ids: [t.id], all: false }, ctx)).envelope.tasks[0]?.agent).toBe("lost");
+    const before = sb.tasksSnapshot();
+    const effects = be.effectCalls().length;
+    expect((await resume(t.id, ctx)).envelope.refusal?.code).toBe("task-lost");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(be.effectCalls().length).toBe(effects);
+  });
+
+  // Protects: only a regular file is a return. Fails if a directory at the
+  // return path counts as present or makes collect throw.
+  test("a directory at the return path is not a return", async () => {
+    const be = backend(sb);
+    const { ctx, t } = await launched(be);
+    mkdirSync(join(t.worktree, REPORT), { recursive: true });
+    const w = await wait({ ids: [t.id], timeoutMs: 0 }, ctx);
+    expect(w.code).toBe(1);
+    expect(w.envelope.tasks[0]?.report).toBe("absent");
+    expect((await collect(t.id, ctx)).code).toBe(1);
+  });
+
+  // Protects: Spec 2.1 allows spaces in returnPath. Fails if the generic
+  // no-whitespace rule comes back for it.
+  test("a return path with a space is dispatched and collected", async () => {
+    const be = backend(sb);
+    const ctx = context(sb, be);
+    const d = await dispatch({ task: task({ returnPath: "reports/completion report.md" }), humanApproved: false }, ctx);
+    expect(d.code).toBe(0);
+    writeReport(d.envelope.tasks[0]?.worktree ?? "", "reports/completion report.md", "feito\n");
+    expect((await collect("TC-0099.1", ctx)).envelope.tasks[0]?.collected?.content).toBe("feito\n");
+    expect((await dispatch({ task: task({ id: "TC-0099.2", writes: ["x/"], returnPath: "reports/a\tb.md" }), humanApproved: false }, ctx)).envelope.refusal?.code).toBe("task-invalid");
+  });
+
+  // Protects: status with IDs reads only those tasks. Fails if it goes back
+  // to parsing the whole registry.
+  test("status with an ID ignores an unreadable unrelated task file", async () => {
+    const be = backend(sb);
+    const { ctx, t } = await launched(be);
+    writeFileSync(join(resolveProject(sb.repo, sb.env)?.dir ?? "", "tasks", "TC-0099.9.json"), "{não é JSON");
+    expect((await status({ ids: [t.id], all: false }, ctx)).code).toBe(0);
+  });
+});
+
 describe("wait observes changes while it waits (R14)", () => {
+  // Protects: a backend that stops during the wait is backend-unavailable
+  // with exit 2, not an agent in unknown. Fails if wait hides the outage.
+  test("the backend stopping during the wait is refused", async () => {
+    const be = backend(sb);
+    const { ctx, t } = await launched(be);
+    const w = await wait({ ids: [t.id], timeoutMs: null }, { ...ctx, sleep: async () => be.script({ running: false }) });
+    expect(w.code).toBe(2);
+    expect(w.envelope.refusal?.code).toBe("backend-unavailable");
+  });
+
   // Protects: wait reads the snapshot and the return file on every cycle.
   // Fails if wait reads only once, or never advances the clock.
   test("a report that appears during the wait ends it with 0", async () => {

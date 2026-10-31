@@ -27,13 +27,15 @@ export async function wait(input: WaitInput, ctx: Context): Promise<Outcome> {
   const deadline = input.timeoutMs === null ? Number.POSITIVE_INFINITY : now() + input.timeoutMs;
   const stopped = new Map<string, TaskView>();
   for (;;) {
-    const probe = await ctx.backend.probe();
-    const reachable = probe.running && probe.compatible;
-    const snapshot = reachable ? await ctx.backend.snapshot() : null;
+    // The backend can stop during a long wait; that is backend-unavailable,
+    // never an agent in `unknown`.
+    const probe = await reachBackend(C, ctx.backend);
+    if (!isProbe(probe)) return probe;
+    const snapshot = await ctx.backend.snapshot();
     for (const record of records) {
       if (stopped.has(record.id)) continue;
       const report = reportState(record);
-      const agent = snapshot === null ? "unknown" : agentState(record, snapshot);
+      const agent = agentState(record, snapshot);
       if (report === "present" || STOP.has(agent)) {
         const v = view(record, snapshot);
         v.agent = agent;

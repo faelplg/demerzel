@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Backend, Probe, Snapshot } from "../backend.ts";
 import { loadConfig, type Config } from "../config.ts";
@@ -114,15 +114,26 @@ export function isProbe(value: Probe | Outcome): value is Probe {
   return !("envelope" in value);
 }
 
+// Spec 2.3: `lost` when the pane is missing from the snapshot. An agent entry
+// without its pane is not a live session.
 export function agentState(record: TaskRecord, snapshot: Snapshot): AgentState {
   const agent = snapshot.agents.find((a) => a.name === record.agent_name);
   if (agent === undefined) return "lost";
+  const panes = new Set(snapshot.workspaces.flatMap((w) => (w.pane === null ? [] : [w.pane])));
+  if (!panes.has(agent.pane)) return "lost";
   if (agent.status === "done") return "idle";
   return agent.status;
 }
 
+// The return is present only as a regular file; a directory at that path is
+// not a report.
+export function reportPath(record: TaskRecord): string {
+  return join(record.worktree, record.task.returnPath);
+}
+
 export function reportState(record: TaskRecord): ReportState {
-  return existsSync(join(record.worktree, record.task.returnPath)) ? "present" : "absent";
+  const path = reportPath(record);
+  return existsSync(path) && statSync(path).isFile() ? "present" : "absent";
 }
 
 const OBSERVED = new Set<TaskRecord["lifecycle"]>(["launched", "collected"]);
@@ -208,10 +219,10 @@ export function planRecovery(registry: Registry, snapshot: Snapshot, project: Pr
         found.push({ kind: "pane", id: workspace.pane });
       }
     }
-    const agent = snapshot.agents.find((a) => a.name === record.agent_name);
-    if (agent !== undefined) found.push({ kind: "agent", name: agent.name });
+    const alive = agentState(record, snapshot) !== "lost";
+    if (alive) found.push({ kind: "agent", name: record.agent_name });
     record.created = found;
-    if (agent !== undefined) {
+    if (alive) {
       record.request_sent = record.send_started_at !== null ? "unknown" : false;
       record.lifecycle = "launched";
       record.history.push(entry("launched", { reason: "interrupted", from, request_sent: record.request_sent }));

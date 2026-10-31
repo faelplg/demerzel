@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { collect, close, dispatch, resume, status, wait } from "../../src/core/index.ts";
 import { git } from "../../src/core/git.ts";
 import { backend, context, sandbox, task, writeReport, type Sandbox } from "./helpers/sandbox.ts";
@@ -70,14 +70,19 @@ describe("verification 1: dispatch to close with the fake backend", () => {
     const name = d.envelope.tasks[0]?.agent_name ?? "";
 
     expect((await resume("TC-0099.1", ctx)).code).toBe(1);
+    // The stored text differs from what the task would build now, so a
+    // resume that rebuilt the request would send something else.
+    const file = `${sb.stateHome}/demerzel/projects/${readdir(sb)}/tasks/TC-0099.1.json`;
+    const stored = JSON.parse(readFileSync(file, "utf8"));
+    stored.request_text = "texto gravado no registro\n";
+    writeFileSync(file, JSON.stringify(stored));
     be.setAgentStatus(name, "idle");
     const r = await resume("TC-0099.1", ctx);
     expect(r.code).toBe(0);
     expect(r.envelope.tasks[0]?.request_sent).toBe(true);
     const sends = be.effectCalls().filter((call) => call.op === "send");
     expect(sends).toHaveLength(1);
-    const recorded = JSON.parse(readFileSync(`${sb.stateHome}/demerzel/projects/${readdir(sb)}/tasks/TC-0099.1.json`, "utf8"));
-    expect(sends[0]?.args["text"]).toBe(recorded.request_text);
+    expect(sends[0]?.args["text"]).toBe("texto gravado no registro\n");
   });
 });
 

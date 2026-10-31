@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { sha256 } from "../project.ts";
-import { done, isLock, isOutcome, lock, notFound, open, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import { done, isLock, isOutcome, lock, notFound, open, reportPath, reportState, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
 
 const C = "collect";
 
@@ -18,8 +17,8 @@ export async function collect(id: string, ctx: Context): Promise<Outcome> {
     const record = registry.read(id);
     if (record === null) return notFound(C, id);
     if (record.lifecycle !== "launched" && record.lifecycle !== "collected") return wrongLifecycle(C, record, "launched ou collected");
-    const path = join(record.worktree, record.task.returnPath);
-    if (!existsSync(path)) return done(C, 1, [view(record, null)]);
+    if (reportState(record) === "absent") return done(C, 1, [view(record, null)]);
+    const path = reportPath(record);
     const content = readFileSync(path, "utf8");
     const digest = sha256(content);
     const changed = record.collected !== null && record.collected.digest !== digest;

@@ -192,6 +192,19 @@ describe("status during an active dispatch (emenda 1)", () => {
 });
 
 describe("workspace identity across projects (Spec 2.5, revision 0.8)", () => {
+  // Protects: a recorded workspace ID wins over any workspace that shares
+  // the label. Fails if recovery looks the label up when the ID is known.
+  test("a recorded workspace ID beats a decoy with the same label", async () => {
+    await interrupt("wrote:created:workspace");
+    const recordedId = record().backend_ids.workspace ?? "missing";
+    const be = new FakeBackend(sb.env, { stateFile });
+    const decoy = be.addWorkspace(workspaceLabel(record()));
+    await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
+    expect(record().backend_ids.workspace).toBe(recordedId);
+    expect(be.effectCalls().filter((c) => c.op === "closeWorkspace").map((c) => c.args["workspace"])).toEqual([recordedId]);
+    expect(be.snapshotNow().workspaces.map((w) => w.id)).toEqual([decoy]);
+  });
+
   // Protects: a recovery that has only the label never takes another
   // project's workspace for the same task ID. Fails if the label goes back
   // to the bare task ID, or a recorded workspace ID is overridden.
