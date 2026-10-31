@@ -15,10 +15,11 @@ type Script = {
   start: Record<string, "ready" | "not_ready" | "error">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
-  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled";
+  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;
+  closeFails: boolean;
 };
 type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script };
 
@@ -117,6 +118,7 @@ if (group === "workspace" && verb === "close") {
   const id = rest[0] ?? "";
   const w = state.workspaces.find((x) => x.id === id);
   if (w === undefined) fail("workspace_not_found", `workspace ${id} not found`, "cli:workspace:close");
+  if (s.closeFails) fail("close_failed", `workspace ${id} could not be closed`, "cli:workspace:close");
   state.workspaces = state.workspaces.filter((x) => x.id !== id);
   state.agents = state.agents.filter((a) => a.workspace !== id);
   save();
@@ -164,6 +166,16 @@ if (group === "agent" && verb === "prompt") {
   const a = state.agents.find((x) => x.name === rest[0]);
   if (a === undefined) fail("agent_not_found", `agent target ${rest[0]} not found`, "cli:agent:prompt");
   if (a.status === "blocked") fail("agent_blocked", `agent ${a.name} is blocked and requires interactive input`, "cli:agent:prompt");
+  if (s.prompt === "ok-no-status") ok({ agent: { name: a.name } }, "cli:agent:prompt");
+  if (s.prompt === "result-exit-1") {
+    process.stdout.write(`${JSON.stringify({ id: "cli:agent:prompt", result: { agent: { name: a.name, agent_status: "working" } } })}\n`);
+    process.exit(1);
+  }
+  if (s.prompt === "echo-garbage") {
+    // An interposed process that echoes its arguments, request included.
+    process.stdout.write(`${rest.join(" ")}\n`);
+    process.exit(1);
+  }
   if (s.prompt !== "ok") fail(s.prompt, `fake ${s.prompt}`, "cli:agent:prompt");
   a.status = s.statusAfterPrompt;
   save();

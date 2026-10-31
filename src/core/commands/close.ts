@@ -82,10 +82,11 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
       } catch (error) {
         // The close was the first effect and failed: the task keeps its
         // lifecycle, the failure goes to the history, and the exit is 1.
-        record.history.push(entry("close-failed", { workspace, backend_error: backendErrorDetail(error) }));
+        const failure = backendErrorDetail(error);
+        record.history.push(entry("close-failed", { workspace, backend_error: failure }));
         registry.write(record);
         ctx.trace?.("wrote:close-failed");
-        return done(C, 1, [viewAfterEffect(record, null)]);
+        return done(C, 1, [viewAfterEffect(record, { snapshot: null, error: null }, failure)]);
       }
     }
     // The human decision goes in with `closed`, so no write ever shows the

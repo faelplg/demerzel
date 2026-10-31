@@ -38,7 +38,9 @@ export class Herdr {
     try {
       data = JSON.parse(body);
     } catch {
-      throw new BackendError(command, `resposta que não é JSON (saída ${proc.exitCode ?? "?"}): ${body.slice(0, 300)}`);
+      // The raw body is never quoted: it could carry an argument of the call,
+      // such as the request text.
+      throw new BackendError(command, `resposta que não é JSON (saída ${proc.exitCode ?? "?"}, ${body.length} caracteres)`);
     }
     if (typeof data === "object" && data !== null) {
       const answer = data as Record<string, unknown>;
@@ -48,7 +50,12 @@ export class Herdr {
         return { ok: false, code: String(e["code"] ?? "unknown"), message: String(e["message"] ?? "") };
       }
       const result = answer["result"];
-      if (typeof result === "object" && result !== null) return { ok: true, result: result as Record<string, unknown> };
+      if (typeof result === "object" && result !== null) {
+        // herdr 0.9.0 exits 0 on success; a result with another exit code is
+        // not a confirmation.
+        if (proc.exitCode !== 0) return { ok: false, code: "unexpected_exit", message: `resposta com result e saída ${proc.exitCode ?? "?"}` };
+        return { ok: true, result: result as Record<string, unknown> };
+      }
     }
     throw new BackendError(command, "resposta JSON sem `result` nem `error`");
   }

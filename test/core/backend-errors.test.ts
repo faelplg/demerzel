@@ -141,6 +141,7 @@ describe("backend failure after the first effect", () => {
     expect(record().lifecycle).toBe("launched");
     expect(record().request_sent).toBe(true);
     expect(d.envelope.tasks[0]?.agent).toBe("unknown");
+    expect(d.envelope.tasks[0]?.backend_error).toContain("herdr snapshot: falha injetada na chamada 2");
   });
 
   // Protects: a close whose backend call fails keeps the lifecycle, records

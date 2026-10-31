@@ -135,7 +135,9 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     }
     if (launch.kind === "failed") {
       transition(registry, record, "launch-failed", { reason: launch.reason }, ctx.trace);
-      return done(C, 1, [view(record, null)]);
+      const v = view(record, null);
+      v.backend_error = launch.reason;
+      return done(C, 1, [v]);
     }
     if (launch.kind === "blocked") {
       record.request_sent = false;
@@ -158,7 +160,7 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     record.request_sent = sent === "sent" ? true : sent === "not-ready" ? false : "unknown";
     transition(registry, record, "launched", { request_sent: record.request_sent, ...(failure === null ? {} : { backend_error: failure }) }, ctx.trace);
     const after = await snapshotAfterEffect(ctx.backend);
-    return done(C, record.request_sent === true && after !== null ? 0 : 1, [viewAfterEffect(record, after)]);
+    return done(C, record.request_sent === true && after.error === null ? 0 : 1, [viewAfterEffect(record, after, failure)]);
   } finally {
     held.release();
   }

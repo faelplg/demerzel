@@ -135,6 +135,31 @@ describe("the five commands over the herdr backend (H11, H12)", () => {
     expect(prompts()).toHaveLength(1);
   });
 
+  // Protects: H13 and Spec 2.3, revision 0.9, a backend failure after the
+  // first effect reaches the envelope and the text with the herdr command,
+  // and the agent is unknown (finding F3). Fails if the CLI exits 1 without
+  // saying why.
+  test("backend errors after the first effect reach the user", async () => {
+    fake.script({ start: { claude: "not_ready", codex: "not_ready" } });
+    const d = await launched();
+    fake.setAgentStatus(d.envelope.tasks[0]?.agent_name ?? "", "idle");
+    fake.script({ prompt: "agent_prompt_stalled" });
+    const r = await cli(["resume", "TC-0099.1", "--json"]);
+    expect(r.code).toBe(1);
+    const t = JSON.parse(r.stdout).tasks[0];
+    expect(t.request_sent).toBe("unknown");
+    expect(t.agent).toBe("unknown");
+    expect(t.backend_error).toContain("herdr agent prompt: agent_prompt_stalled");
+    expect(record().history.at(-1).detail.backend_error).toContain("agent_prompt_stalled");
+
+    fake.script({ closeFails: true });
+    const x = await cli(["close", "TC-0099.1"]);
+    expect(x.code).toBe(1);
+    expect(x.stdout).toContain("agent=unknown");
+    expect(x.stdout).toContain("erro do backend: herdr workspace close: close_failed");
+    expect(record().lifecycle).toBe("launched");
+  });
+
   // Protects: H12, a bad herdr block and a stopped herdr are refusals with
   // exit 2 and no effect. Fails if either acts.
   test("configuration and backend refusals", async () => {

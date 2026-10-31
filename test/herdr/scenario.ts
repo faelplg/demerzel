@@ -35,12 +35,19 @@ const check = (name: string, ok: boolean, detail: unknown = null) => {
 };
 
 // A minimal, explicit environment for the herdr server, so the panes it opens
-// never inherit variables of the session that runs this script.
+// and the git it runs never inherit the session that runs this script, nor
+// the owner's Git configuration, hooks or shell startup files: the sandbox
+// HOME and isolated Git, and /bin/sh as the pane shell.
 const serverEnv: Record<string, string> = {};
-for (const key of ["HOME", "PATH", "SHELL", "USER", "LOGNAME", "LANG", "TMPDIR"]) {
+for (const key of ["PATH", "USER", "LOGNAME", "LANG", "TMPDIR"]) {
   const value = process.env[key];
   if (value !== undefined) serverEnv[key] = value;
 }
+for (const key of ["HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_TEMPLATE_DIR", "GIT_TERMINAL_PROMPT", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"]) {
+  const value = sb.env[key];
+  if (value !== undefined) serverEnv[key] = value;
+}
+serverEnv["SHELL"] = "/bin/sh";
 serverEnv["TERM"] = "xterm-256color";
 serverEnv["XDG_CONFIG_HOME"] = configHome;
 

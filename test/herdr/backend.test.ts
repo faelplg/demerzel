@@ -244,6 +244,16 @@ describe("launch (H5, H6, H7)", () => {
     const r = await launch(herdr(), plan());
     expect(r.outcome.kind === "failed" && r.outcome.reason).toContain("herdr agent start: agent_start_failed");
   });
+
+  // Protects: H6, a Claude Code agent start that fails after the hook ran
+  // still lists the worktree in created (finding F2). Fails if the worktree
+  // is checked only on the success path.
+  test("claude-code agent start error after the hook", async () => {
+    fake.script({ start: { claude: "error" } });
+    const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-e000000000000001", branch: "radiant/j", worktreePath: join(sb.root, "wt", "j") }));
+    expect(r.outcome.kind).toBe("failed");
+    expect(r.kinds).toEqual(["workspace", "tab", "pane", "worktree"]);
+  });
 });
 
 describe("send and close (H8, H9)", () => {
@@ -255,14 +265,37 @@ describe("send and close (H8, H9)", () => {
     expect(await be.send("dz-0123456789abcdef", "linha 1\nlinha 2")).toBe("sent");
     const prompt = fake.calls().find((c) => c[2] === "agent" && c[3] === "prompt") ?? [];
     expect(prompt.slice(2)).toEqual(["agent", "prompt", "dz-0123456789abcdef", "linha 1\nlinha 2", "--wait", "--until", "working", "--until", "blocked", "--timeout", "30000"]);
-    for (const [code, want] of [["agent_prompt_stalled", "unknown"], ["agent_not_ready", "not-ready"]] as const) {
-      fake.script({ prompt: code });
-      expect(await be.send("dz-0123456789abcdef", "x")).toBe(want);
-    }
+    fake.script({ prompt: "agent_not_ready" });
+    expect(await be.send("dz-0123456789abcdef", "x")).toBe("not-ready");
+    fake.script({ prompt: "agent_prompt_stalled" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("herdr agent prompt: agent_prompt_stalled");
     fake.script({ prompt: "ok" });
     fake.setAgentStatus("dz-0123456789abcdef", "blocked");
     expect(await be.send("dz-0123456789abcdef", "x")).toBe("not-ready");
-    expect(await be.send("dz-ffffffffffffffff", "x")).toBe("unknown");
+    await expect(be.send("dz-ffffffffffffffff", "x")).rejects.toThrow("agent_not_found");
+  });
+
+  // Protects: H8, a success that is not a confirmation never counts as sent
+  // (finding F1 of the TC-0002 verification). Fails if a result without the
+  // agent's state, or a result with a non-zero exit, is taken as delivered.
+  test("an unexpected success is not a confirmation", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ prompt: "ok-no-status" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("confirmação sem o estado do agente");
+    fake.script({ prompt: "result-exit-1" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("unexpected_exit");
+  });
+
+  // Protects: H13 and Spec 6, a broken answer never copies the request into
+  // the diagnosis (finding F4). Fails if the raw body is quoted.
+  test("a non-JSON answer does not quote the request", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ prompt: "echo-garbage" });
+    const error = await be.send("dz-0123456789abcdef", "PEDIDO-SECRETO-91c2").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BackendError);
+    expect(String((error as Error).message)).not.toContain("PEDIDO-SECRETO-91c2");
   });
 
   test("close", async () => {

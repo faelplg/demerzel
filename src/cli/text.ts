@@ -19,6 +19,7 @@ export function formatText(envelope: Envelope): { stdout: string; stderr: string
   if (envelope.tasks.length === 0) out.push("nenhuma tarefa");
   for (const task of envelope.tasks) {
     out.push(line(task, envelope.command));
+    if (task.backend_error !== null) out.push(`erro do backend: ${task.backend_error}`);
     if (envelope.command === "collect" && task.collected !== undefined) {
       const c = task.collected;
       out.push(`path=${c.path}  digest=${c.digest}  digest_changed=${String(c.digest_changed)}`);

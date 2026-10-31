@@ -151,9 +151,16 @@ try {
       const d = await dispatch({ task: taskFor(harness, id, SHORT), humanApproved: false }, ctx);
       const t = d.envelope.tasks[0];
       ids.push(id);
-      const entry = { id, harness, code: d.code, lifecycle: t?.lifecycle ?? null, request_sent: t?.request_sent ?? null, agent: t?.agent ?? null, dispatch_ms: Date.now() - started, refusal: d.envelope.refusal, intervention_before_delivery: t?.request_sent !== true };
+      // The registry tells a technical failure (launch-failed), a startup the
+      // harness blocked (a dialog that needs a human before the request) and
+      // a delivery apart. Human actions themselves are not observable here:
+      // owner_observation is filled from the owner's own account.
+      const history = record(id).history;
+      const blockedStartup = history.some((h) => h.event === "launched" && h.detail?.["startup"] === "blocked");
+      const outcome = t?.lifecycle === "launch-failed" ? "falha técnica" : blockedStartup ? "startup travado" : t?.request_sent === true ? "entregue" : "envio sem confirmação";
+      const entry = { id, harness, code: d.code, lifecycle: t?.lifecycle ?? null, request_sent: t?.request_sent ?? null, agent: t?.agent ?? null, dispatch_ms: Date.now() - started, refusal: d.envelope.refusal, outcome, intervention_before_delivery: outcome === "startup travado", backend_error: t?.backend_error ?? null, owner_observation: null };
       (report["launches"] as unknown[]).push(entry);
-      say(`${id}: code=${d.code} request_sent=${String(entry.request_sent)} agent=${entry.agent} ${entry.dispatch_ms}ms`);
+      say(`${id}: ${outcome} code=${d.code} request_sent=${String(entry.request_sent)} agent=${entry.agent} ${entry.dispatch_ms}ms${entry.backend_error ? ` erro=${entry.backend_error}` : ""}`);
       save();
     }
   }

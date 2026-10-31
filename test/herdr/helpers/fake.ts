@@ -12,10 +12,11 @@ export type FakeHerdrScript = {
   start: Record<string, "ready" | "not_ready" | "error">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
-  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled";
+  prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage";
   statusAfterPrompt: string;
   extraAgents: Array<{ name?: string; agent_status: string; pane_id: string }>;
   paneBusy: number;
+  closeFails: boolean;
 };
 
 export const defaultScript: FakeHerdrScript = {
@@ -29,6 +30,7 @@ export const defaultScript: FakeHerdrScript = {
   statusAfterPrompt: "working",
   extraAgents: [],
   paneBusy: 0,
+  closeFails: false,
 };
 
 export type FakeHerdr = {

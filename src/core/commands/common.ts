@@ -42,6 +42,9 @@ export type TaskView = {
   request_sent: TaskRecord["request_sent"];
   created: Created[];
   provenance: Record<string, string>;
+  // Spec 2.3, revision 0.9: the backend command and error of a failure after
+  // the first effect of this command, or null.
+  backend_error: string | null;
   created_at: string | null;
   updated_at: string | null;
   collected?: { content: string; path: string; digest: string; digest_changed: boolean };
@@ -139,19 +142,28 @@ export function isSnapshot(value: Snapshot | Outcome): value is Snapshot {
 }
 
 // After the first effect, a failure to read the backend is not a refusal:
-// the command keeps what it recorded and the agent is observed as unknown.
-export async function snapshotAfterEffect(backend: Backend): Promise<Snapshot | null> {
+// the command keeps what it recorded, the agent is observed as unknown, and
+// the error reaches the task in the envelope.
+export type AfterEffect = { snapshot: Snapshot | null; error: string | null };
+
+export async function snapshotAfterEffect(backend: Backend): Promise<AfterEffect> {
   try {
-    return await backend.snapshot();
+    return { snapshot: await backend.snapshot(), error: null };
   } catch (error) {
-    if (error instanceof BackendError) return null;
+    if (error instanceof BackendError) return { snapshot: null, error: `${error.command}: ${error.detail}` };
     throw error;
   }
 }
 
-export function viewAfterEffect(record: TaskRecord, snapshot: Snapshot | null): TaskView {
-  const v = view(record, snapshot);
-  if (snapshot === null && v.report !== null) v.agent = "unknown";
+// `failure` is a backend error this command already met, such as a send
+// that threw; with it, the agent is unknown even if the snapshot worked.
+export function viewAfterEffect(record: TaskRecord, after: AfterEffect, failure: string | null = null): TaskView {
+  const v = view(record, after.snapshot);
+  const error = failure ?? after.error;
+  if (error !== null) {
+    v.backend_error = error;
+    if (v.report !== null) v.agent = "unknown";
+  }
   return v;
 }
 
@@ -223,6 +235,7 @@ export function view(record: TaskRecord, snapshot: Snapshot | null, options: { i
     request_sent: record.request_sent,
     created: record.created,
     provenance: record.provenance,
+    backend_error: null,
     created_at: first?.at ?? null,
     updated_at: last?.at ?? null,
   };
