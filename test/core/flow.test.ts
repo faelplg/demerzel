@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { collect, close, dispatch, resume, status, wait } from "../../src/core/index.ts";
 import { git } from "../../src/core/git.ts";
 import { backend, context, sandbox, task, writeReport, type Sandbox } from "./helpers/sandbox.ts";
@@ -57,6 +58,22 @@ describe("verification 1: dispatch to close with the fake backend", () => {
       expect(all.envelope.tasks.map((x) => x.lifecycle)).toEqual(["closed"]);
     });
   }
+
+  // Protects: Spec 3.3, the core part: without a base, the dispatch starts
+  // from the caller's current branch, also from a linked worktree whose HEAD
+  // differs from the main checkout. Fails if the base comes from the main
+  // checkout.
+  test("default base from a linked worktree", async () => {
+    const linked = join(sb.root, "caller");
+    git(sb.repo, ["worktree", "add", "-q", "-b", "caller", linked], sb.env);
+    git(linked, ["commit", "-q", "--allow-empty", "-m", "só no worktree chamador"], sb.env);
+    const callerCommit = git(linked, ["rev-parse", "HEAD"], sb.env).stdout;
+    expect(callerCommit).not.toBe(git(sb.repo, ["rev-parse", "HEAD"], sb.env).stdout);
+    const d = await dispatch({ task: task(), humanApproved: false }, context(sb, backend(sb), { cwd: linked }));
+    expect(d.code).toBe(0);
+    expect(d.envelope.tasks[0]?.base).toEqual({ ref: "caller", commit: callerCommit });
+    expect(git(d.envelope.tasks[0]?.worktree ?? "", ["rev-parse", "HEAD"], sb.env).stdout).toBe(callerCommit);
+  });
 
   // Protects: resume sends the recorded request once the human freed a
   // blocked startup. Fails if resume rebuilds the text or skips the send.

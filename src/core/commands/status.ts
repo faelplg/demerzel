@@ -32,11 +32,13 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
   }
   const probe = await reachBackend(C, ctx.backend);
   if (!isProbe(probe)) return probe;
-  const snapshot = await ctx.backend.snapshot();
+  let snapshot = await ctx.backend.snapshot();
 
   // A dispatch may have finished while this command read the backend. With
   // the lock free, the half-done tasks are read again before being called
-  // interrupted; with the lock busy they are shown as they are.
+  // interrupted, and when one of them moved on, the snapshot is taken again
+  // so the record and the agent come from the same moment. With the lock
+  // busy they are shown as they are.
   const halfDone = (r: TaskRecord) => r.lifecycle === "recorded" || r.lifecycle === "launching";
   const interrupted = new Set<string>();
   if (records.some(halfDone)) {
@@ -44,7 +46,9 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
     const probeLock = ProjectLock.tryAcquire(registry.lockPath);
     if (probeLock !== null) {
       try {
-        records = records.map((r) => (halfDone(r) ? (registry.read(r.id) ?? r) : r));
+        const reread = records.map((r) => (halfDone(r) ? (registry.read(r.id) ?? r) : r));
+        if (reread.some((r, i) => r.lifecycle !== records[i]?.lifecycle)) snapshot = await ctx.backend.snapshot();
+        records = reread;
         for (const r of records) if (halfDone(r)) interrupted.add(r.id);
       } finally {
         probeLock.release();

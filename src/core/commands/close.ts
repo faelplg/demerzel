@@ -8,8 +8,14 @@ const C = "close";
 
 export type CloseInput = { id: string; discardWorktree: boolean };
 
+// The human decision is written before the destructive effect, so an
+// interruption after `git worktree remove` still leaves it in the registry
+// (Spec 6). The outcome is written after.
 function discard(record: TaskRecord, registry: Registry, mainCheckout: string, ctx: Context): { removed: boolean; reason: string | null } {
   record.flags.discard_worktree = true;
+  record.history.push(entry("worktree-discard-started", null));
+  registry.write(record);
+  ctx.trace?.("wrote:worktree-discard-started");
   if (!existsSync(record.worktree)) {
     record.worktree_removed = true;
     record.history.push(entry("worktree-discard", { removed: true, note: "o path já não existia" }));
@@ -41,8 +47,11 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
 
     if (stored.lifecycle === "closed") {
       const record = stored;
-      if (!input.discardWorktree || record.worktree_removed || !existsSync(record.worktree)) {
-        return wrongLifecycle(C, record, "launched, collected ou launch-failed; closed só para repetir o descarte de um worktree que ainda existe");
+      // Repeating the discard is accepted while the worktree is there, and
+      // also to finish a discard that started and never recorded its outcome.
+      const unfinished = record.flags.discard_worktree && !record.worktree_removed;
+      if (!input.discardWorktree || record.worktree_removed || (!existsSync(record.worktree) && !unfinished)) {
+        return wrongLifecycle(C, record, "launched, collected ou launch-failed; closed só para repetir ou terminar o descarte do worktree");
       }
       const result = discard(record, registry, project.mainCheckout, ctx);
       const v = view(record, null);

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { Backend, LaunchOutcome, LaunchPlan, Preparation, Probe, SendOutcome, Snapshot, SnapshotAgentStatus } from "./backend.ts";
 import type { Env } from "./env.ts";
 import { git } from "./git.ts";
@@ -7,7 +7,10 @@ import type { BackendIds, Created } from "./types.ts";
 // In-memory backend for the core's tests. It creates real Git worktrees so
 // branches, dependencies and collect are proven against Git, and lets each
 // outcome of Spec 2.5 be injected. With `stateFile`, its state survives across
-// processes, for the lock and interruption tests.
+// processes, for the lock and interruption tests. Reads (probe, snapshot,
+// prepare) never write the state file: only effects, which the core runs under
+// the project lock, and the test controls do. Every call goes to a separate
+// append-only log, so a read in one process cannot erase an effect of another.
 
 export type WorktreeMode = "worktree-first" | "worktree-on-start";
 export type EffectPoint = "worktree" | "workspace" | "agent";
@@ -44,22 +47,23 @@ type State = {
   next: number;
   workspaces: Array<{ id: string; label: string; tab: string | null; pane: string | null }>;
   agents: Array<{ name: string; status: SnapshotAgentStatus; pane: string }>;
-  calls: FakeCall[];
   script: FakeScript;
 };
 
 export class FakeBackend implements Backend {
   private memory: State;
+  private memoryCalls: FakeCall[] = [];
+  private readonly stateFile: string | null;
+  private readonly callsFile: string | null;
 
   constructor(private env: Env, options: { script?: Partial<FakeScript>; stateFile?: string } = {}) {
     this.stateFile = options.stateFile ?? null;
+    this.callsFile = this.stateFile === null ? null : `${this.stateFile}.calls.jsonl`;
     const loaded = this.stateFile !== null && existsSync(this.stateFile) ? (JSON.parse(readFileSync(this.stateFile, "utf8")) as State) : null;
-    this.memory = loaded ?? { next: 1, workspaces: [], agents: [], calls: [], script: { ...defaultScript } };
+    this.memory = loaded ?? { next: 1, workspaces: [], agents: [], script: { ...defaultScript } };
     if (options.script !== undefined) this.memory.script = { ...this.memory.script, ...options.script };
-    this.save();
+    if (loaded === null || options.script !== undefined) this.save();
   }
-
-  private readonly stateFile: string | null;
 
   private load(): State {
     if (this.stateFile !== null && existsSync(this.stateFile)) this.memory = JSON.parse(readFileSync(this.stateFile, "utf8")) as State;
@@ -73,16 +77,17 @@ export class FakeBackend implements Backend {
     renameSync(tmp, this.stateFile);
   }
 
-  // Appends to the state the calling method already loaded; reloading here
-  // would detach the references that method still changes.
   private log(op: string, effect: boolean, args: Record<string, unknown> = {}): void {
-    this.memory.calls.push({ op, effect, args });
-    this.save();
+    const call = { op, effect, args };
+    if (this.callsFile === null) this.memoryCalls.push(call);
+    else appendFileSync(this.callsFile, `${JSON.stringify(call)}\n`);
   }
 
   // Test controls.
   get calls(): FakeCall[] {
-    return this.load().calls;
+    if (this.callsFile === null) return this.memoryCalls;
+    if (!existsSync(this.callsFile)) return [];
+    return readFileSync(this.callsFile, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as FakeCall);
   }
   snapshotNow(): State {
     return this.load();

@@ -1,5 +1,5 @@
-import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { join, sep } from "node:path";
 import type { Backend, Probe, Snapshot } from "../backend.ts";
 import { loadConfig, type Config } from "../config.ts";
 import type { Env } from "../env.ts";
@@ -125,15 +125,29 @@ export function agentState(record: TaskRecord, snapshot: Snapshot): AgentState {
   return agent.status;
 }
 
-// The return is present only as a regular file; a directory at that path is
-// not a report.
 export function reportPath(record: TaskRecord): string {
   return join(record.worktree, record.task.returnPath);
 }
 
-export function reportState(record: TaskRecord): ReportState {
+// The real path of the return, or null. The return is present only as a
+// regular file whose real path, after every symlink, stays inside the
+// worktree (Spec 2.1): a directory is not a return, and a symlink out of the
+// worktree must never make the core read a file outside it (Spec 6).
+export function reportFile(record: TaskRecord): string | null {
   const path = reportPath(record);
-  return existsSync(path) && statSync(path).isFile() ? "present" : "absent";
+  if (!existsSync(path)) return null;
+  try {
+    const real = realpathSync(path);
+    const root = realpathSync(record.worktree);
+    if (!real.startsWith(`${root}${sep}`)) return null;
+    return statSync(real).isFile() ? real : null;
+  } catch {
+    return null;
+  }
+}
+
+export function reportState(record: TaskRecord): ReportState {
+  return reportFile(record) === null ? "absent" : "present";
 }
 
 const OBSERVED = new Set<TaskRecord["lifecycle"]>(["launched", "collected"]);

@@ -49,6 +49,12 @@ describe("IDs and agent names (R8, R9)", () => {
     for (const name of names) expect(name).toMatch(/^dz-[0-9a-f]{16}$/);
   });
 
+  // Protects: the exact formula of Spec 2.5, sha256 of "<key>:<id>". Fails
+  // if the separator or the input changes.
+  test("agent name known vector", () => {
+    expect(agentName("project-0123456789ab", "TC-0001.1")).toBe("dz-0af4617d5c271d43");
+  });
+
   test("task ID format", () => {
     expect(parseTask(task({ id: "TC-0001.1" })).ok).toBe(true);
     expect(parseTask(task({ id: "a".repeat(65) })).ok).toBe(false);
