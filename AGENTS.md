@@ -20,8 +20,9 @@ Comandos, da raiz:
 
 - `bun install --frozen-lockfile`: instala as dependências de desenvolvimento
   fixadas no `bun.lock`.
-- `bun run check`: checagem de tipos, a suíte do núcleo sem `python3` e os
-  testes do entrypoint. Todo incremento termina com ele passando.
+- `bun run check`: checagem de tipos, a suíte do núcleo sem `python3`, os
+  testes do backend herdr e os do CLI. Todo incremento termina com ele
+  passando.
 - `bun run test:core`: a suíte de `test/core/` num `PATH` só com `git` e
   `bun`, sem `python3`.
 - `bun run typecheck` e `bun test`: a checagem de tipos e todos os testes com
