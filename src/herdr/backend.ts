@@ -34,9 +34,12 @@ export function shQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-// A whole semantic version, or null: three numeric parts, an optional
-// prerelease and optional build metadata. Nothing is parsed in part.
-const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+// A whole semantic version 2.0.0, or null: three numeric parts, an
+// optional prerelease and optional build metadata, with no empty
+// identifier and no leading zero in a numeric one. This is the pattern the
+// semver specification publishes. Nothing is parsed in part.
+const IDENT = "(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)";
+const VERSION = new RegExp(`^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(${IDENT}(?:\\.${IDENT})*))?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$`);
 
 export function parseVersion(version: string): { parts: [number, number, number]; prerelease: boolean } | null {
   const m = VERSION.exec(version);

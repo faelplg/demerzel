@@ -139,6 +139,7 @@ describe("probe (H2)", () => {
     expect(versionAtLeast("0.10.1", "0.9.0")).toBe(true);
     expect(versionAtLeast("1.0.0-rc1", "0.9.0")).toBe(true);
     expect(versionAtLeast("0.9.1+build.7", "0.9.0")).toBe(true);
+    expect(versionAtLeast("1.0.0-rc.1+exp.sha.5114f85", "0.9.0")).toBe(true);
     expect(versionAtLeast("0.8.12", "0.9.0")).toBe(false);
   });
 
@@ -146,7 +147,9 @@ describe("probe (H2)", () => {
   // reaches the minimum, and a prerelease of the minimum does not. Fails if
   // a partly parsed version passes, or dispatch creates anything with it.
   test("malformed and prerelease versions", async () => {
-    for (const version of ["1.nope.0", "0.9junk.0", "0.9", "v0.9.0", "0.9.0-rc1", ""]) {
+    // The last three break semver 2.0.0: empty identifiers, and a numeric
+    // prerelease identifier with a leading zero.
+    for (const version of ["1.nope.0", "0.9junk.0", "0.9", "v0.9.0", "0.9.0-rc1", "", "0.9.1-..", "1.0.0+..", "1.0.0-01"]) {
       expect(versionAtLeast(version, "0.9.0"), version).toBe(false);
     }
     fake.script({ version: "0.9junk.0" });
