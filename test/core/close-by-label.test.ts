@@ -73,8 +73,8 @@ describe("close finds a workspace whose ID was never recorded", () => {
   });
 
   // Protects: the ID found is kept even when the close fails, so a second
-  // close reaches the same workspace. Fails if the found ID is only written
-  // with `closed`, or a failed close moves the task.
+  // close reaches the same workspace. Fails if a failed close loses the
+  // found ID or moves the task.
   test("a failed close keeps the found ID and the next close finishes", async () => {
     const be = new CloseFails(sb.env, { script: { failAfter: "worktree" } });
     await launchWithoutWorkspaceId(be);
