@@ -11,7 +11,7 @@ type Workspace = { id: string; label: string; tab: string; pane: string; cwd: st
 type Script = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
@@ -24,7 +24,7 @@ type Script = {
   createAnswer: "ok" | "garbage-after" | "empty-noop";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
-type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script };
+type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script; snapshotFailed?: boolean };
 
 const statePath = process.env["FAKE_HERDR_STATE"] ?? "";
 const logPath = process.env["FAKE_HERDR_LOG"] ?? "";
@@ -80,6 +80,13 @@ if (group === "api" && verb === "snapshot") {
   if (s.snapshot === "garbage") {
     process.stdout.write("isto não é JSON\n");
     process.exit(0);
+  }
+  // The server drops on the first snapshot after a workspace exists, as in
+  // the reconciliation right after a creation whose answer was lost.
+  if (s.snapshot === "fail-once-with-workspace" && state.workspaces.length > 0 && state.snapshotFailed !== true) {
+    state.snapshotFailed = true;
+    save();
+    fail("server_not_running", "connection lost", "cli:api:snapshot");
   }
   if (s.snapshot === "no-lists") ok({ type: "snapshot", snapshot: { agents: [] } }, "cli:api:snapshot");
   ok(

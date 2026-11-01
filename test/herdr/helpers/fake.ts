@@ -8,7 +8,7 @@ import type { Env } from "../../../src/core/env.ts";
 export type FakeHerdrScript = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";

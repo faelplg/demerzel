@@ -438,6 +438,27 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     expect(fake.state().workspaces).toEqual([]);
   });
 
+  // Protects: TC-0002 Emenda 1 (finding Q1), when the creation's answer and
+  // the reconciliation snapshot both fail, close still finds the workspace
+  // by its label and closes it, in both modes. Fails if close trusts only
+  // the recorded ID and exits 0 with the workspace open.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`close after a lost creation answer and a lost reconciliation, ${harness}`, async () => {
+      fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids.workspace).toBeNull();
+      expect(fake.state().workspaces).toHaveLength(1);
+      const id = fake.state().workspaces[0]?.id;
+
+      const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+      expect(c.code).toBe(0);
+      expect(c.envelope.tasks[0]?.backend_ids.workspace).toBe(id);
+      expect(fake.state().workspaces).toEqual([]);
+      expect(fake.calls().filter((call) => call[0] === "workspace" && call[1] === "close")).toEqual([["workspace", "close", id ?? "missing"]]);
+    });
+  }
+
   // Protects: a success that created nothing lists nothing. Fails if a
   // worktree is recorded on the answer alone.
   test("an empty success that created nothing", async () => {
