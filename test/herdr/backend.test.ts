@@ -138,7 +138,26 @@ describe("probe (H2)", () => {
     expect(versionAtLeast("0.9.0", "0.9.0")).toBe(true);
     expect(versionAtLeast("0.10.1", "0.9.0")).toBe(true);
     expect(versionAtLeast("1.0.0-rc1", "0.9.0")).toBe(true);
+    expect(versionAtLeast("0.9.1+build.7", "0.9.0")).toBe(true);
     expect(versionAtLeast("0.8.12", "0.9.0")).toBe(false);
+  });
+
+  // Protects: finding M2 of the twelfth verification, only a whole version
+  // reaches the minimum, and a prerelease of the minimum does not. Fails if
+  // a partly parsed version passes, or dispatch creates anything with it.
+  test("malformed and prerelease versions", async () => {
+    for (const version of ["1.nope.0", "0.9junk.0", "0.9", "v0.9.0", "0.9.0-rc1", ""]) {
+      expect(versionAtLeast(version, "0.9.0"), version).toBe(false);
+    }
+    fake.script({ version: "0.9junk.0" });
+    const probe = await herdr().probe();
+    expect(probe.versionOk).toBe(false);
+    expect(probe.detail).toContain("0.9junk.0");
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(2);
+    expect(d.envelope.refusal?.code).toBe("backend-version");
+    expect(sb.tasksSnapshot()).toEqual({});
+    expect(fake.state().workspaces).toEqual([]);
   });
 });
 
@@ -801,6 +820,27 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
       expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(harness === "codex" ? ["worktree", "workspace", "tab", "pane"] : ["workspace", "tab", "pane"]);
     });
   }
+
+  // Protects: finding M1 of the twelfth verification, two workspaces with
+  // one Demerzel task label make the label lookup ambiguous, so the
+  // snapshot is refused and close touches neither. Fails if the first one
+  // is taken. Workspaces of other owners may share a label.
+  test("close with two workspaces under the task's label", async () => {
+    fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.envelope.tasks[0]?.backend_ids.workspace).toBeNull();
+    const label = fake.state().workspaces[0]?.label ?? "";
+    fake.script({ extraWorkspaces: [{ workspace_id: "w-alheio", label }] });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+
+    fake.script({ extraWorkspaces: [{ workspace_id: "w-a", label: "demerzel" }, { workspace_id: "w-b", label: "demerzel" }] });
+    expect((await herdr().snapshot()).workspaces.map((w) => w.id)).toEqual(["w1", "w-a", "w-b"]);
+  });
 
   // Protects: TC-0002 Emenda 1 (finding Q1), when the creation's answer and
   // the reconciliation snapshot both fail, close still finds the workspace

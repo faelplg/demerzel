@@ -19,6 +19,7 @@ const EFFORT: Record<string, readonly string[]> = {
 const AGENT_STATUS = new Set<SnapshotAgentStatus>(["working", "blocked", "idle", "done", "unknown"]);
 // Spec 2.5: every agent the Demerzel launches is named `dz-` plus 16 hex.
 const DEMERZEL_AGENT = /^dz-[0-9a-f]{16}$/;
+const TASK_LABEL = /^\S+ dz-[0-9a-f]{16}$/;
 
 export type HerdrOptions = {
   startTimeoutMs?: number;
@@ -33,17 +34,26 @@ export function shQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+// A whole semantic version, or null: three numeric parts, an optional
+// prerelease and optional build metadata. Nothing is parsed in part.
+const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+export function parseVersion(version: string): { parts: [number, number, number]; prerelease: boolean } | null {
+  const m = VERSION.exec(version);
+  if (m === null) return null;
+  return { parts: [Number(m[1]), Number(m[2]), Number(m[3])], prerelease: m[4] !== undefined };
+}
+
+// Semantic version order: a malformed version never reaches the minimum,
+// and a prerelease comes before its own release.
 export function versionAtLeast(version: string, minimum: string): boolean {
-  const parse = (v: string) => v.split(/[.-]/).slice(0, 3).map((n) => Number.parseInt(n, 10));
-  const a = parse(version);
-  const b = parse(minimum);
+  const a = parseVersion(version);
+  const b = parseVersion(minimum);
+  if (a === null || b === null) return false;
   for (let i = 0; i < 3; i++) {
-    const x = a[i] ?? 0;
-    const y = b[i] ?? 0;
-    if (Number.isNaN(x)) return false;
-    if (x !== y) return x > y;
+    if (a.parts[i] !== b.parts[i]) return (a.parts[i] ?? 0) > (b.parts[i] ?? 0);
   }
-  return true;
+  return !a.prerelease || b.prerelease;
 }
 
 // Spec 2.5: the WorktreeCreate hook runs git worktree add with Git's output
@@ -115,7 +125,9 @@ export class HerdrBackend implements Backend {
     const compatible = field(data, "server", "compatible") === true;
     const version = text(data, "server", "version");
     if (!running) return { ...down(`servidor do herdr parado${text(data, "server", "session") ? ` na sessão ${text(data, "server", "session")}` : ""}`), version };
-    return { running, compatible, versionOk: version !== null && versionAtLeast(version, MINIMUM), version, minimum: MINIMUM, detail: compatible ? null : "cliente e servidor do herdr incompatíveis" };
+    const malformed = version === null || parseVersion(version) === null;
+    const detail = !compatible ? "cliente e servidor do herdr incompatíveis" : malformed ? `versão do servidor do herdr malformada: ${JSON.stringify(version)}` : null;
+    return { running, compatible, versionOk: !malformed && versionAtLeast(version, MINIMUM), version, minimum: MINIMUM, detail };
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -148,6 +160,11 @@ export class HerdrBackend implements Backend {
       return { id, label: text(w, "label") ?? broken(`workspace ${id} sem label`) };
     });
     unique("workspace", workspaceRows.map((w) => w.id));
+    // A Demerzel task label (Spec 2.5: task ID, a space and the agent name)
+    // is how a recovery finds a workspace; the herdr does not keep labels
+    // unique, so two workspaces under one task label are refused rather
+    // than one chosen. Other owners' workspaces may share a label.
+    unique("label de tarefa", workspaceRows.map((w) => w.label).filter((l) => TASK_LABEL.test(l)));
     const workspaceIds = new Set(workspaceRows.map((w) => w.id));
     const tabRows = list("tabs").map((t) => {
       const id = ident(t, "tab_id") ?? broken("aba sem tab_id");
