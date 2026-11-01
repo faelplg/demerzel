@@ -21,10 +21,10 @@ export type FakeHerdrScript = {
   statusExit: number;
   // A relation of the snapshot broken on purpose, applied to the first
   // workspace, tab, pane and agent.
-  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch";
+  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number";
   statusAnswer: "ok" | "garbage";
   agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
-  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
+  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 

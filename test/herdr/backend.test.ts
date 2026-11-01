@@ -264,7 +264,7 @@ describe("snapshot (H3)", () => {
   test("a snapshot with missing, repeated or contradictory relations", async () => {
     await launch(herdr(), plan());
     expect((await herdr().snapshot()).workspaces[0]?.pane).toBe("w1:p1");
-    const relations = ["pane-without-workspace", "pane-without-tab", "tab-without-id", "tab-of-missing-workspace", "pane-in-other-workspace", "duplicate-pane", "duplicate-tab", "duplicate-workspace", "duplicate-agent", "agent-tab-mismatch", "agent-workspace-mismatch"] as const;
+    const relations = ["pane-without-workspace", "pane-without-tab", "tab-without-id", "tab-of-missing-workspace", "pane-in-other-workspace", "duplicate-pane", "duplicate-tab", "duplicate-workspace", "duplicate-agent", "agent-tab-mismatch", "agent-workspace-mismatch", "workspace-without-label", "tab-without-number"] as const;
     for (const relation of relations) {
       fake.script({ relation });
       const error = await herdr().snapshot().catch((e: unknown) => e);
@@ -711,6 +711,49 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
       fake.script({ createAnswer: "ok" });
       const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
       expect(c.code).toBe(0);
+      expect(fake.state().workspaces).toEqual([]);
+    });
+  }
+
+  // Protects: finding K1 of the tenth verification, a snapshot without the
+  // label that the Emenda 1 lookup needs is refused, so close never records
+  // `closed` with the workspace open. Fails if a missing label reads as "".
+  test("close after a lost creation answer and a snapshot without labels", async () => {
+    fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.envelope.tasks[0]?.backend_ids.workspace).toBeNull();
+    fake.script({ relation: "workspace-without-label" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  // Protects: finding K2 of the tenth verification, a creation answer
+  // without the tab is not a confirmed launch; the launch fails, and the
+  // reconciliation lists every resource that exists, in both modes. Fails
+  // if the launch goes on with the tab missing from the registry.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`a creation answer without the tab, ${harness}`, async () => {
+      fake.script({ createAnswer: "no-tab" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
+      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(harness === "codex" ? ["worktree", "workspace", "pane", "tab"] : ["workspace", "pane", "tab"]);
+    });
+
+    // Protects: K2, the resources a partial answer confirmed stay listed
+    // even when the reconciliation snapshot fails too. Fails if a missing
+    // root pane drops the workspace and the tab the answer gave.
+    test(`a creation answer without the root pane and a lost reconciliation, ${harness}`, async () => {
+      fake.script({ createAnswer: "no-pane", snapshot: "fail-once-with-workspace" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: null });
+      fake.script({ createAnswer: "ok" });
+      expect((await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)))).code).toBe(0);
       expect(fake.state().workspaces).toEqual([]);
     });
   }

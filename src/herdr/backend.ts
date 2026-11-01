@@ -141,14 +141,21 @@ export class HerdrBackend implements Backend {
     // in a tab of its own workspace. The answer is checked whole before any
     // mapping: a missing or contradictory relation would let a present pane
     // look absent, and close would end a working agent.
-    const workspaceRows = list("workspaces").map((w) => ({ id: ident(w, "workspace_id") ?? broken("workspace sem workspace_id"), label: text(w, "label") ?? "" }));
+    // The label is how a recovery finds a workspace whose ID was never
+    // recorded (Spec 2.3, Emenda 1); a missing one is not an empty one.
+    const workspaceRows = list("workspaces").map((w) => {
+      const id = ident(w, "workspace_id") ?? broken("workspace sem workspace_id");
+      return { id, label: text(w, "label") ?? broken(`workspace ${id} sem label`) };
+    });
     unique("workspace", workspaceRows.map((w) => w.id));
     const workspaceIds = new Set(workspaceRows.map((w) => w.id));
     const tabRows = list("tabs").map((t) => {
       const id = ident(t, "tab_id") ?? broken("aba sem tab_id");
       const workspace = ident(t, "workspace_id") ?? broken(`aba ${id} sem workspace_id`);
       if (!workspaceIds.has(workspace)) broken(`aba ${id} de um workspace ${workspace} fora do snapshot`);
-      return { id, workspace, number: Number(field(t, "number") ?? 0) };
+      const number = field(t, "number");
+      if (typeof number !== "number" || !Number.isFinite(number)) broken(`aba ${id} sem number`);
+      return { id, workspace, number: number as number };
     });
     unique("aba", tabRows.map((t) => t.id));
     const tabById = new Map(tabRows.map((t) => [t.id, t]));
@@ -285,15 +292,18 @@ export class HerdrBackend implements Backend {
     const reportWorktree = (): void => {
       if (worktreeConfirmed()) report({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
     };
+    // Each resource the answer confirms is listed on its own, so a partial
+    // answer keeps what it did confirm. The launch goes on only with the
+    // workspace, the tab and the root pane; otherwise the failure path
+    // reconciles the rest with the real state.
     const reportSession = (result: Record<string, unknown>): string | null => {
       const workspace = ident(result, "workspace", "workspace_id");
       const tab = ident(result, "tab", "tab_id") ?? ident(result, "root_pane", "tab_id");
       const pane = ident(result, "root_pane", "pane_id");
-      if (workspace === null || pane === null) return null;
-      report({ kind: "workspace", id: workspace });
-      if (tab !== null) report({ kind: "tab", id: tab });
-      report({ kind: "pane", id: pane });
-      return pane;
+      if (workspace !== null) report({ kind: "workspace", id: workspace });
+      if (workspace !== null && tab !== null) report({ kind: "tab", id: tab });
+      if (workspace !== null && pane !== null) report({ kind: "pane", id: pane });
+      return workspace !== null && tab !== null && pane !== null ? pane : null;
     };
     // When a confirmation is lost or broken, the real state decides what the
     // launch created: the workspace by its label, unique across projects; the
@@ -330,7 +340,7 @@ export class HerdrBackend implements Backend {
       reportWorktree();
       if (!reported.has("worktree")) return failed("herdr worktree create: confirmação sem worktree no Git");
       const pane = reportSession(created.result);
-      if (pane === null) return failed("herdr worktree create: confirmação sem workspace ou root_pane");
+      if (pane === null) return failed("herdr worktree create: confirmação sem workspace, aba ou root_pane");
       const started = await this.startAgent(plan.agentName, ["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
       if (started.kind === "failed") return failed(started.reason);
       report({ kind: "agent", name: plan.agentName });
@@ -346,7 +356,7 @@ export class HerdrBackend implements Backend {
     const created = this.create(["workspace", "create", "--cwd", plan.mainCheckout, "--label", plan.label, "--no-focus"]);
     if (!created.ok) return failed(created.reason);
     const pane = reportSession(created.result);
-    if (pane === null) return failed("herdr workspace create: confirmação sem workspace ou root_pane");
+    if (pane === null) return failed("herdr workspace create: confirmação sem workspace, aba ou root_pane");
     const started = await this.startAgent(plan.agentName, [
       "agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", "--worktree", worktreeName, "--settings", settings, ...this.modelArgs(plan, preparation),
     ]);

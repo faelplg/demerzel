@@ -24,10 +24,10 @@ type Script = {
   statusExit: number;
   // A relation of the snapshot broken on purpose, applied to the first
   // workspace, tab, pane and agent.
-  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch";
+  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number";
   statusAnswer: "ok" | "garbage";
   agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
-  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
+  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script; snapshotFailed?: boolean };
@@ -144,12 +144,24 @@ if (group === "api" && verb === "snapshot") {
   if (r === "duplicate-agent" && a0) snapshot.agents.unshift({ ...a0, agent_status: "idle" });
   if (r === "agent-tab-mismatch" && a0) a0["tab_id"] = "w-outro:t1";
   if (r === "agent-workspace-mismatch" && a0) a0["workspace_id"] = "w-outro";
+  if (r === "workspace-without-label" && w0) delete w0["label"];
+  if (r === "tab-without-number" && t0) delete t0["number"];
   ok({ type: "snapshot", snapshot }, "cli:api:snapshot");
 }
 
 // A creation whose answer is lost after the effect, or a success that
 // created nothing: the real state and the answer disagree on purpose.
 function answerCreate(result: Record<string, unknown>, id: string): never {
+  // Partial confirmations: the tab, or the root pane with its tab, left out.
+  if (s.createAnswer === "no-tab") {
+    delete result["tab"];
+    delete (result["root_pane"] as Record<string, unknown>)["tab_id"];
+    ok(result, id);
+  }
+  if (s.createAnswer === "no-pane") {
+    delete result["root_pane"];
+    ok(result, id);
+  }
   if (s.createAnswer === "empty-workspace-id") {
     (result["workspace"] as Record<string, unknown>)["workspace_id"] = "";
     ok(result, id);
