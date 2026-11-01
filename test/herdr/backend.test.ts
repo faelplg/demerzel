@@ -227,6 +227,37 @@ describe("snapshot (H3)", () => {
     expect(fake.state().workspaces).toHaveLength(1);
   });
 
+  // Protects: finding E1 of the eighth verification, a renamed workspace
+  // where another owner's agent sits in a lower tab still shows the
+  // Demerzel agent's pane, the only kind of agent the core asks about.
+  // Fails if the first named agent by tab is taken.
+  test("a renamed workspace with another agent in a lower tab", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    fake.script({ snapshot: "renamed-lower-tab", extraAgents: [{ name: "outro-dono", agent_status: "idle", pane_id: "w1:p0" }] });
+    expect((await herdr().snapshot()).workspaces).toEqual([{ id: "w1", label: "nome dado pelo humano", tab: "w1:t1", pane: "w1:p1" }]);
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("task-working");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  // Protects: E1, a workspace with Demerzel agents in two panes cannot be
+  // shown with one pane, so the snapshot is refused rather than hiding one.
+  // Fails if one of them is dropped, or if agents of other owners in the
+  // same workspace make the snapshot fail.
+  test("two Demerzel agents in one workspace", async () => {
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "extra-pane-first", extraAgents: [{ name: "dz-ffffffffffffffff", agent_status: "idle", pane_id: "w1:p2" }] });
+    const error = await herdr().snapshot().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BackendError);
+    expect(String((error as Error).message)).toContain("herdr api snapshot");
+    fake.script({ extraAgents: [{ name: "outro-dono", agent_status: "working", pane_id: "w1:p2" }] });
+    expect((await herdr().snapshot()).workspaces[0]?.pane).toBe("w1:p1");
+  });
+
   // Protects: finding V1 of the fifth verification, a named agent without
   // its pane or state, or a workspace without its ID, is a broken snapshot,
   // not an absent agent or workspace. Fails if the entry is dropped or
@@ -404,6 +435,16 @@ describe("launch (H5, H6, H7)", () => {
     expect(r.outcome.kind).toBe("failed");
     const reason = r.outcome.kind === "failed" ? r.outcome.reason : "";
     expect(reason).toContain("herdr agent get: agent_not_found: consulta do agente falhou");
+  });
+
+  // Protects: finding E2 of the eighth verification, an `agent get` answer
+  // without the agent's cwd is named in the failure. Fails if it becomes a
+  // bare unknown cwd.
+  test("an agent get answer without the cwd during the postcondition", async () => {
+    fake.script({ agentGet: "empty" });
+    const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000007", branch: "radiant/q", worktreePath: join(sb.root, "wt", "q") }));
+    expect(r.outcome.kind).toBe("failed");
+    expect(r.outcome.kind === "failed" ? r.outcome.reason : "").toContain("herdr agent get: resposta sem agent.foreground_cwd");
   });
 
   // Protects: a pane whose shell is not ready yet is retried, in both modes,

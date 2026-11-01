@@ -103,6 +103,20 @@ describe("backend failure before the first effect", () => {
     expect(said.envelope.refusal?.code).toBe("backend-unavailable");
     expect(said.envelope.refusal?.message).toContain("servidor parado na sessão dz-test");
   });
+
+  // Protects: output 6, the probe's detail also reaches backend-version
+  // (finding E3 of the eighth verification). Fails if the version refusal
+  // drops the detail.
+  test("the probe's detail reaches backend-version", async () => {
+    class Old extends FakeBackend {
+      override async probe(): Promise<Probe> {
+        return { ...(await super.probe()), versionOk: false, version: "0.8.0", detail: "cliente 0.9.0, servidor 0.8.0" };
+      }
+    }
+    const r = await status({ ids: [], all: false }, context(sb, new Old(sb.env)));
+    expect(r.envelope.refusal?.code).toBe("backend-version");
+    expect(r.envelope.refusal?.message).toContain("cliente 0.9.0, servidor 0.8.0");
+  });
 });
 
 describe("backend failure after the first effect", () => {

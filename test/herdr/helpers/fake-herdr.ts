@@ -11,7 +11,7 @@ type Workspace = { id: string; label: string; tab: string; pane: string; cwd: st
 type Script = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id" | "extra-pane-first" | "extra-tab-first" | "renamed-split";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id" | "extra-pane-first" | "extra-tab-first" | "renamed-split" | "renamed-lower-tab";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path" | "then-drop-branch" | "then-move-branch";
   cwd: "worktree" | "root";
@@ -23,7 +23,7 @@ type Script = {
   closeAnswer: "ok" | "empty";
   statusExit: number;
   statusAnswer: "ok" | "garbage";
-  agentGet: "ok" | "error";
+  agentGet: "ok" | "error" | "empty";
   createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -114,16 +114,19 @@ if (group === "api" && verb === "snapshot") {
           ...s.extraAgents,
         ],
         // renamed-split: a human renamed the workspace and split its pane.
-        workspaces: [...state.workspaces.map((w, i) => (broken === "workspace-without-id" ? { label: w.label, number: i + 1 } : { workspace_id: w.id, label: broken === "renamed-split" ? "nome dado pelo humano" : w.label, number: i + 1 })), ...s.extraWorkspaces],
+        workspaces: [...state.workspaces.map((w, i) => (broken === "workspace-without-id" ? { label: w.label, number: i + 1 } : { workspace_id: w.id, label: broken === "renamed-split" || broken === "renamed-lower-tab" ? "nome dado pelo humano" : w.label, number: i + 1 })), ...s.extraWorkspaces],
         // extra-tab-first lists a second tab, with its own pane, before the
         // first one; extra-pane-first lists a split pane before the root pane
         // of the same tab. Neither order says which pane is the root.
         tabs: state.workspaces.flatMap((w) => [
           ...(broken === "extra-tab-first" ? [{ tab_id: `${w.id}:t2`, workspace_id: w.id, number: 2, label: "2" }] : []),
+          // renamed-lower-tab: renamed, plus a tab numbered before the first.
+          ...(broken === "renamed-lower-tab" ? [{ tab_id: `${w.id}:t0`, workspace_id: w.id, number: 0, label: "0" }] : []),
           { tab_id: w.tab, workspace_id: w.id, number: 1, label: "1" },
         ]),
         panes: state.workspaces.flatMap((w) => [
           ...(broken === "extra-tab-first" ? [{ pane_id: `${w.id}:p9`, tab_id: `${w.id}:t2`, workspace_id: w.id }] : []),
+          ...(broken === "renamed-lower-tab" ? [{ pane_id: `${w.id}:p0`, tab_id: `${w.id}:t0`, workspace_id: w.id }] : []),
           ...(broken === "extra-pane-first" || broken === "renamed-split" ? [{ pane_id: `${w.id}:p2`, tab_id: w.tab, workspace_id: w.id }] : []),
           { pane_id: w.pane, tab_id: w.tab, workspace_id: w.id },
         ]),
@@ -233,6 +236,7 @@ if (group === "agent" && verb === "start") {
 
 if (group === "agent" && verb === "get") {
   if (s.agentGet === "error") fail("agent_not_found", "consulta do agente falhou", "cli:agent:get");
+  if (s.agentGet === "empty") ok({}, "cli:agent:get");
   const a = state.agents.find((x) => x.name === rest[0]);
   if (a === undefined) fail("agent_not_found", `agent target ${rest[0]} not found`, "cli:agent:get");
   ok({ agent: { name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane, foreground_cwd: a.cwd } }, "cli:agent:get");
