@@ -6,8 +6,8 @@ Codex em `gpt-6.1-sol`, papel `radiant-grill`: onze objeções, todas aceitas
 pelo owner e aplicadas aqui e na Spec 0.9, antes de qualquer execução
 **Project:** `demerzel`
 **Iteration:** Plan 0.3, incremento 4
-**Status:** `VERIFY`
-**Lifecycle:** `active` desde 2026-10-31, por decisão do owner; o `ACTIVE.md` aponta para ele
+**Status:** `DONE`
+**Lifecycle:** `done` em 2026-11-01, fechado no PR do Build, [faelplg/demerzel#16](https://github.com/faelplg/demerzel/pull/16), depois da décima terceira verificação independente com PASS; evidência em `docs/project/verification/2026-10-31-tc-0002-herdr.md`
 **Owner:** Fael (humano); Build por um agente no papel `radiant-dev`;
 orquestrador responsável pelo smoke com harness real e pela crítica
 independente
