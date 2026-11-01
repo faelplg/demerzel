@@ -24,7 +24,7 @@ export type FakeHerdrScript = {
   relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number";
   statusAnswer: "ok" | "garbage";
   agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
-  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane";
+  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane" | "other-workspace-id" | "no-workspace-object" | "other-tab-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 

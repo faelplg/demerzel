@@ -758,6 +758,50 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     });
   }
 
+  // Protects: finding L1 of the eleventh verification, a creation answer
+  // whose workspace ID contradicts its tab and root pane is not recorded;
+  // the launch fails and the reconciliation finds the task's own workspace
+  // by label, so close never reaches another task's workspace. Fails if
+  // the contradictory ID is recorded, in either mode.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`a creation answer that names another workspace, ${harness}`, async () => {
+      const first = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+      expect(first.code).toBe(0);
+      expect(fake.state().agents[0]?.status).toBe("working");
+      fake.script({ createAnswer: "other-workspace-id" });
+      const second = await dispatch({ task: task({ id: "TC-0099.2", harness, branch: "radiant/TC-0099.2", writes: ["src/TC-0099.2/"] }), humanApproved: false }, ctx(herdr(null)));
+      expect(second.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(second.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w2", tab: "w2:t1", pane: "w2:p1" });
+      fake.script({ createAnswer: "ok" });
+      expect((await close({ id: "TC-0099.2", discardWorktree: false }, ctx(herdr(null)))).code).toBe(0);
+      expect(fake.state().workspaces.map((w) => w.id)).toEqual(["w1"]);
+      expect(fake.state().agents.map((a) => a.status)).toEqual(["working"]);
+    });
+
+    // Protects: L1 for the tab, a tab ID that contradicts the root pane's
+    // tab is not recorded; the reconciliation gives the real one. Fails if
+    // the answer's tab ID reaches the registry.
+    test(`a creation answer whose tab contradicts the root pane, ${harness}`, async () => {
+      fake.script({ createAnswer: "other-tab-id" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
+      expect(String(d.envelope.tasks[0]?.created.map((c) => JSON.stringify(c)))).not.toContain("w-outro");
+    });
+
+    // Protects: finding L2 of the eleventh verification, an answer without
+    // the workspace object still lists the tab and the root pane, and the
+    // workspace their relation names, even when the reconciliation fails.
+    // Fails if the tab and the pane are dropped with the workspace object.
+    test(`a creation answer without the workspace object and a lost reconciliation, ${harness}`, async () => {
+      fake.script({ createAnswer: "no-workspace-object", snapshot: "fail-once-with-workspace" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
+      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(harness === "codex" ? ["worktree", "workspace", "tab", "pane"] : ["workspace", "tab", "pane"]);
+    });
+  }
+
   // Protects: TC-0002 Emenda 1 (finding Q1), when the creation's answer and
   // the reconciliation snapshot both fail, close still finds the workspace
   // by its label and closes it, in both modes. Fails if close trusts only

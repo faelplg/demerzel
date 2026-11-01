@@ -292,18 +292,28 @@ export class HerdrBackend implements Backend {
     const reportWorktree = (): void => {
       if (worktreeConfirmed()) report({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
     };
-    // Each resource the answer confirms is listed on its own, so a partial
-    // answer keeps what it did confirm. The launch goes on only with the
-    // workspace, the tab and the root pane; otherwise the failure path
-    // reconciles the rest with the real state.
-    const reportSession = (result: Record<string, unknown>): string | null => {
-      const workspace = ident(result, "workspace", "workspace_id");
-      const tab = ident(result, "tab", "tab_id") ?? ident(result, "root_pane", "tab_id");
+    // The IDs of a creation answer must agree: the workspace, the tab's
+    // workspace and the root pane's workspace, and the tab and the root
+    // pane's tab. A contradictory answer records nothing, since a wrong ID
+    // could later close another task's workspace; the failure path finds
+    // the real ones by label. Otherwise each resource the answer confirms is
+    // listed on its own, the workspace also when only the relation of the
+    // tab or the pane names it. The launch goes on only when the workspace,
+    // the tab and the root pane objects all came.
+    const reportSession = (result: Record<string, unknown>): { pane: string | null; reason: string } => {
+      const agree = (values: Array<string | null>): string | null | false => {
+        const present = values.filter((v): v is string => v !== null);
+        return present.some((v) => v !== present[0]) ? false : (present[0] ?? null);
+      };
+      const workspace = agree([ident(result, "workspace", "workspace_id"), ident(result, "tab", "workspace_id"), ident(result, "root_pane", "workspace_id")]);
+      const tab = agree([ident(result, "tab", "tab_id"), ident(result, "root_pane", "tab_id")]);
       const pane = ident(result, "root_pane", "pane_id");
+      if (workspace === false || tab === false) return { pane: null, reason: "confirmação com IDs de workspace ou aba que se contradizem" };
       if (workspace !== null) report({ kind: "workspace", id: workspace });
       if (workspace !== null && tab !== null) report({ kind: "tab", id: tab });
       if (workspace !== null && pane !== null) report({ kind: "pane", id: pane });
-      return workspace !== null && tab !== null && pane !== null ? pane : null;
+      const whole = ident(result, "workspace", "workspace_id") !== null && ident(result, "tab", "tab_id") !== null && pane !== null;
+      return whole ? { pane, reason: "" } : { pane: null, reason: "confirmação sem workspace, aba ou root_pane" };
     };
     // When a confirmation is lost or broken, the real state decides what the
     // launch created: the workspace by its label, unique across projects; the
@@ -339,8 +349,9 @@ export class HerdrBackend implements Backend {
       if (!created.ok) return failed(created.reason);
       reportWorktree();
       if (!reported.has("worktree")) return failed("herdr worktree create: confirmação sem worktree no Git");
-      const pane = reportSession(created.result);
-      if (pane === null) return failed("herdr worktree create: confirmação sem workspace, aba ou root_pane");
+      const session = reportSession(created.result);
+      if (session.pane === null) return failed(`herdr worktree create: ${session.reason}`);
+      const pane = session.pane;
       const started = await this.startAgent(plan.agentName, ["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
       if (started.kind === "failed") return failed(started.reason);
       report({ kind: "agent", name: plan.agentName });
@@ -355,8 +366,9 @@ export class HerdrBackend implements Backend {
     if (/[\n\r]/.test(plan.worktreePath) || /[\n\r]/.test(plan.mainCheckout)) return { kind: "failed", reason: "path com quebra de linha não cabe no protocolo do hook WorktreeCreate", ids };
     const created = this.create(["workspace", "create", "--cwd", plan.mainCheckout, "--label", plan.label, "--no-focus"]);
     if (!created.ok) return failed(created.reason);
-    const pane = reportSession(created.result);
-    if (pane === null) return failed("herdr workspace create: confirmação sem workspace, aba ou root_pane");
+    const session = reportSession(created.result);
+    if (session.pane === null) return failed(`herdr workspace create: ${session.reason}`);
+    const pane = session.pane;
     const started = await this.startAgent(plan.agentName, [
       "agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", "--worktree", worktreeName, "--settings", settings, ...this.modelArgs(plan, preparation),
     ]);

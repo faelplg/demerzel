@@ -27,7 +27,7 @@ type Script = {
   relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number";
   statusAnswer: "ok" | "garbage";
   agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
-  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane";
+  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane" | "other-workspace-id" | "no-workspace-object" | "other-tab-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script; snapshotFailed?: boolean };
@@ -156,6 +156,20 @@ function answerCreate(result: Record<string, unknown>, id: string): never {
   if (s.createAnswer === "no-tab") {
     delete result["tab"];
     delete (result["root_pane"] as Record<string, unknown>)["tab_id"];
+    ok(result, id);
+  }
+  // A contradictory answer: the workspace ID of the first workspace, while
+  // the tab and the root pane are the new one's.
+  if (s.createAnswer === "other-workspace-id") {
+    (result["workspace"] as Record<string, unknown>)["workspace_id"] = state.workspaces[0]?.id ?? "w-outro";
+    ok(result, id);
+  }
+  if (s.createAnswer === "other-tab-id") {
+    (result["tab"] as Record<string, unknown>)["tab_id"] = "w-outro:t1";
+    ok(result, id);
+  }
+  if (s.createAnswer === "no-workspace-object") {
+    delete result["workspace"];
     ok(result, id);
   }
   if (s.createAnswer === "no-pane") {
