@@ -6,7 +6,7 @@
 // branches and the shell quoting are proven against Git and a shell.
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
-type Agent = { name: string; kind: string; status: string; pane: string; workspace: string; tab: string; cwd: string };
+type Agent = { name: string; kind: string; status: string; pane: string; workspace: string; tab: string; cwd: string; hookCwd?: string };
 type Workspace = { id: string; label: string; tab: string; pane: string; cwd: string };
 type Script = {
   running: boolean;
@@ -22,8 +22,11 @@ type Script = {
   closeFails: boolean;
   closeAnswer: "ok" | "empty";
   statusExit: number;
+  // A relation of the snapshot broken on purpose, applied to the first
+  // workspace, tab, pane and agent.
+  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch";
   statusAnswer: "ok" | "garbage";
-  agentGet: "ok" | "error" | "empty";
+  agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
   createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -105,10 +108,7 @@ if (group === "api" && verb === "snapshot") {
     return out;
   };
   if (s.snapshot === "no-lists") ok({ type: "snapshot", snapshot: { agents: [] } }, "cli:api:snapshot");
-  ok(
-    {
-      type: "snapshot",
-      snapshot: {
+  const snapshot = {
         agents: [
           ...state.agents.map(agentFields),
           ...s.extraAgents,
@@ -130,10 +130,21 @@ if (group === "api" && verb === "snapshot") {
           ...(broken === "extra-pane-first" || broken === "renamed-split" ? [{ pane_id: `${w.id}:p2`, tab_id: w.tab, workspace_id: w.id }] : []),
           { pane_id: w.pane, tab_id: w.tab, workspace_id: w.id },
         ]),
-      },
-    },
-    "cli:api:snapshot",
-  );
+  } as { agents: Record<string, unknown>[]; workspaces: Record<string, unknown>[]; tabs: Record<string, unknown>[]; panes: Record<string, unknown>[] };
+  const [a0, w0, t0, p0] = [snapshot.agents[0], snapshot.workspaces[0], snapshot.tabs[0], snapshot.panes[0]];
+  const r = s.relation;
+  if (r === "pane-without-workspace" && p0) delete p0["workspace_id"];
+  if (r === "pane-without-tab" && p0) delete p0["tab_id"];
+  if (r === "tab-without-id" && t0) delete t0["tab_id"];
+  if (r === "tab-of-missing-workspace" && t0) t0["workspace_id"] = "w-ausente";
+  if (r === "pane-in-other-workspace" && p0) p0["workspace_id"] = "w-outro";
+  if (r === "duplicate-pane" && p0) snapshot.panes.push({ ...p0 });
+  if (r === "duplicate-tab" && t0) snapshot.tabs.push({ ...t0 });
+  if (r === "duplicate-workspace" && w0) snapshot.workspaces.push({ ...w0 });
+  if (r === "duplicate-agent" && a0) snapshot.agents.unshift({ ...a0, agent_status: "idle" });
+  if (r === "agent-tab-mismatch" && a0) a0["tab_id"] = "w-outro:t1";
+  if (r === "agent-workspace-mismatch" && a0) a0["workspace_id"] = "w-outro";
+  ok({ type: "snapshot", snapshot }, "cli:api:snapshot");
 }
 
 // A creation whose answer is lost after the effect, or a success that
@@ -195,6 +206,7 @@ if (group === "agent" && verb === "start") {
   }
   const agentArgs = rest.slice(rest.indexOf("--") + 1);
   let cwd = w.cwd;
+  let hookCwd: string | undefined;
   const settings = opt(agentArgs, "--settings");
   if (kind === "claude" && settings !== null && s.hook !== "skip") {
     // Claude Code runs the WorktreeCreate hook command through a shell and
@@ -203,6 +215,7 @@ if (group === "agent" && verb === "start") {
     const r = Bun.spawnSync(["/bin/sh", "-c", command], { cwd: w.cwd, env: process.env, stdout: "pipe", stderr: "pipe" });
     const printed = r.stdout.toString().trim();
     if (r.exitCode === 0) cwd = s.hook === "wrong-path" ? w.cwd : printed;
+    if (r.exitCode === 0) hookCwd = printed;
     // The session stays in the worktree, but its branch is gone or moved
     // off the base commit, so only the Git check can catch it.
     if (r.exitCode === 0 && (s.hook === "then-drop-branch" || s.hook === "then-move-branch")) {
@@ -224,7 +237,7 @@ if (group === "agent" && verb === "start") {
     process.stdout.write("isto não é JSON\n");
     process.exit(0);
   }
-  state.agents.push({ name, kind, status: outcome === "not_ready" ? "blocked" : "idle", pane, workspace: w.id, tab: w.tab, cwd });
+  state.agents.push({ name, kind, status: outcome === "not_ready" ? "blocked" : "idle", pane, workspace: w.id, tab: w.tab, cwd, ...(hookCwd === undefined ? {} : { hookCwd }) });
   save();
   if (outcome === "started-garbage") {
     process.stdout.write("isto não é JSON\n");
@@ -239,6 +252,11 @@ if (group === "agent" && verb === "get") {
   if (s.agentGet === "empty") ok({}, "cli:agent:get");
   const a = state.agents.find((x) => x.name === rest[0]);
   if (a === undefined) fail("agent_not_found", `agent target ${rest[0]} not found`, "cli:agent:get");
+  // Answers that do not say where this agent is: no cwd, an empty one, or
+  // another agent's, placed in the worktree the caller expects.
+  if (s.agentGet === "no-cwd") ok({ agent: { name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane } }, "cli:agent:get");
+  if (s.agentGet === "empty-cwd") ok({ agent: { name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane, foreground_cwd: "" } }, "cli:agent:get");
+  if (s.agentGet === "other-agent") ok({ agent: { name: "outro-dono", agent: a.kind, agent_status: "idle", pane_id: "w9:p9", foreground_cwd: a.hookCwd ?? a.cwd } }, "cli:agent:get");
   ok({ agent: { name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane, foreground_cwd: a.cwd } }, "cli:agent:get");
 }
 

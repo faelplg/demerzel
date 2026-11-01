@@ -258,6 +258,38 @@ describe("snapshot (H3)", () => {
     expect((await herdr().snapshot()).workspaces[0]?.pane).toBe("w1:p1");
   });
 
+  // Protects: finding J1 of the ninth verification, a snapshot whose
+  // relations are missing, repeated or contradictory is broken, never a
+  // smaller snapshot. Fails if any of them maps to a workspace or an agent.
+  test("a snapshot with missing, repeated or contradictory relations", async () => {
+    await launch(herdr(), plan());
+    expect((await herdr().snapshot()).workspaces[0]?.pane).toBe("w1:p1");
+    const relations = ["pane-without-workspace", "pane-without-tab", "tab-without-id", "tab-of-missing-workspace", "pane-in-other-workspace", "duplicate-pane", "duplicate-tab", "duplicate-workspace", "duplicate-agent", "agent-tab-mismatch", "agent-workspace-mismatch"] as const;
+    for (const relation of relations) {
+      fake.script({ relation });
+      const error = await herdr().snapshot().catch((e: unknown) => e);
+      expect(error, relation).toBeInstanceOf(BackendError);
+      expect(String((error as Error).message), relation).toContain("herdr api snapshot");
+    }
+  });
+
+  // Protects: J1 end to end, close refuses a working agent when its pane
+  // loses its workspace or a second entry with its name says idle. Fails if
+  // close exits 0 and closes the workspace.
+  for (const relation of ["pane-without-workspace", "duplicate-agent"] as const) {
+    test(`close refuses a working agent behind a broken snapshot, ${relation}`, async () => {
+      const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+      expect(d.code).toBe(0);
+      fake.script({ relation });
+      const before = sb.tasksSnapshot();
+      const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+      expect(c.code).toBe(2);
+      expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+      expect(sb.tasksSnapshot()).toEqual(before);
+      expect(fake.state().workspaces).toHaveLength(1);
+    });
+  }
+
   // Protects: finding V1 of the fifth verification, a named agent without
   // its pane or state, or a workspace without its ID, is a broken snapshot,
   // not an absent agent or workspace. Fails if the entry is dropped or
@@ -437,15 +469,33 @@ describe("launch (H5, H6, H7)", () => {
     expect(reason).toContain("herdr agent get: agent_not_found: consulta do agente falhou");
   });
 
-  // Protects: finding E2 of the eighth verification, an `agent get` answer
-  // without the agent's cwd is named in the failure. Fails if it becomes a
-  // bare unknown cwd.
-  test("an agent get answer without the cwd during the postcondition", async () => {
-    fake.script({ agentGet: "empty" });
-    const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000007", branch: "radiant/q", worktreePath: join(sb.root, "wt", "q") }));
-    expect(r.outcome.kind).toBe("failed");
-    expect(r.outcome.kind === "failed" ? r.outcome.reason : "").toContain("herdr agent get: resposta sem agent.foreground_cwd");
-  });
+  // Protects: findings E2 of the eighth verification and J2 and J3 of the
+  // ninth, an `agent get` answer that does not say where this agent is
+  // fails the postcondition with the command named, on a ready and on a
+  // blocked startup: an empty answer, no cwd, an empty cwd, or another
+  // agent's answer whose cwd is the worktree. Fails if any of them passes
+  // or becomes a bare unknown cwd.
+  const getCases = [
+    ["empty", "herdr agent get: resposta sem o nome deste agente"],
+    ["no-cwd", "herdr agent get: resposta sem agent.foreground_cwd"],
+    ["empty-cwd", "herdr agent get: resposta sem agent.foreground_cwd"],
+    ["other-agent", "herdr agent get: resposta sem o nome deste agente"],
+  ] as const;
+  for (const startup of ["ready", "not_ready"] as const) {
+    test(`agent get answers that do not place this agent, ${startup} startup`, async () => {
+      let n = 0;
+      for (const [mode, said] of getCases) {
+        n++;
+        // The agent itself stays at the project root; only the answer under
+        // test could place it in the worktree.
+        fake.script({ agentGet: mode, start: { claude: startup, codex: startup }, cwd: mode === "other-agent" ? "root" : "worktree" });
+        const id = `${startup === "ready" ? "a" : "b"}${n}`;
+        const r = await launch(herdr(), plan({ harness: "claude-code", agentName: `dz-c0000000000000${n}${startup === "ready" ? "a" : "b"}`, branch: `radiant/get-${id}`, worktreePath: join(sb.root, "wt", `get-${id}`) }));
+        expect(r.outcome.kind, mode).toBe("failed");
+        expect(r.outcome.kind === "failed" ? r.outcome.reason : "", mode).toContain(said);
+      }
+    });
+  }
 
   // Protects: a pane whose shell is not ready yet is retried, in both modes,
   // and a pane that stays busy ends in failed. Fails if the first

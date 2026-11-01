@@ -19,8 +19,11 @@ export type FakeHerdrScript = {
   closeFails: boolean;
   closeAnswer: "ok" | "empty";
   statusExit: number;
+  // A relation of the snapshot broken on purpose, applied to the first
+  // workspace, tab, pane and agent.
+  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch";
   statusAnswer: "ok" | "garbage";
-  agentGet: "ok" | "error" | "empty";
+  agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
   createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -39,6 +42,7 @@ export const defaultScript: FakeHerdrScript = {
   closeFails: false,
   closeAnswer: "ok",
   statusExit: 0,
+  relation: "none",
   statusAnswer: "ok",
   agentGet: "ok",
   createAnswer: "ok",

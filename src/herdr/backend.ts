@@ -130,9 +130,42 @@ export class HerdrBackend implements Backend {
     const broken = (detail: string): never => {
       throw new BackendError("herdr api snapshot", detail);
     };
+    const unique = (kind: string, ids: string[]): void => {
+      const seen = new Set<string>();
+      for (const id of ids) {
+        if (seen.has(id)) broken(`${kind} ${id} repetido`);
+        seen.add(id);
+      }
+    };
+    // Every workspace, tab and pane comes with its IDs, and each pane sits
+    // in a tab of its own workspace. The answer is checked whole before any
+    // mapping: a missing or contradictory relation would let a present pane
+    // look absent, and close would end a working agent.
+    const workspaceRows = list("workspaces").map((w) => ({ id: ident(w, "workspace_id") ?? broken("workspace sem workspace_id"), label: text(w, "label") ?? "" }));
+    unique("workspace", workspaceRows.map((w) => w.id));
+    const workspaceIds = new Set(workspaceRows.map((w) => w.id));
+    const tabRows = list("tabs").map((t) => {
+      const id = ident(t, "tab_id") ?? broken("aba sem tab_id");
+      const workspace = ident(t, "workspace_id") ?? broken(`aba ${id} sem workspace_id`);
+      if (!workspaceIds.has(workspace)) broken(`aba ${id} de um workspace ${workspace} fora do snapshot`);
+      return { id, workspace, number: Number(field(t, "number") ?? 0) };
+    });
+    unique("aba", tabRows.map((t) => t.id));
+    const tabById = new Map(tabRows.map((t) => [t.id, t]));
+    const paneRows = list("panes").map((p) => {
+      const id = ident(p, "pane_id") ?? broken("pane sem pane_id");
+      const tab = ident(p, "tab_id") ?? broken(`pane ${id} sem tab_id`);
+      const workspace = ident(p, "workspace_id") ?? broken(`pane ${id} sem workspace_id`);
+      if (tabById.get(tab)?.workspace !== workspace) broken(`pane ${id} fora da aba ${tab} do workspace ${workspace}`);
+      return { id, tab, workspace };
+    });
+    unique("pane", paneRows.map((p) => p.id));
+    const paneById = new Map(paneRows.map((p) => [p.id, p]));
     // Agents without a name are not the Demerzel's and are left out. A named
-    // agent without its pane or state is a broken answer, never an absent
-    // agent: dropping it would let close end a working agent.
+    // agent without its pane or state, two entries with one name, or an
+    // agent whose tab or workspace contradicts its pane is a broken answer,
+    // never an absent agent. An agent whose pane is not listed is lost
+    // (Spec 2.3).
     const agents = list("agents").flatMap((a) => {
       const name = ident(a, "name");
       if (name === null) return [];
@@ -140,10 +173,15 @@ export class HerdrBackend implements Backend {
       if (pane === null) return broken(`agente ${name} sem pane_id`);
       const raw = text(a, "agent_status") ?? broken(`agente ${name} sem agent_status`);
       const status = AGENT_STATUS.has(raw as SnapshotAgentStatus) ? (raw as SnapshotAgentStatus) : "unknown";
+      const listed = paneById.get(pane);
+      if (listed !== undefined) {
+        const tab = ident(a, "tab_id");
+        const workspace = ident(a, "workspace_id");
+        if ((tab !== null && tab !== listed.tab) || (workspace !== null && workspace !== listed.workspace)) broken(`agente ${name} em aba ou workspace diferente do pane ${pane}`);
+      }
       return [{ name, status, pane }];
     });
-    const tabs = list("tabs");
-    const panes = list("panes");
+    unique("agente", agents.map((a) => a.name));
     // The herdr does not mark a root pane, and the core sees one pane per
     // workspace, and asks only about Demerzel agents. A pane that holds one
     // must never be the one left out, or a working agent would look lost.
@@ -152,23 +190,17 @@ export class HerdrBackend implements Backend {
     // panes of one workspace cannot be shown and the snapshot is refused.
     // Without one, the first pane holding a named agent, by tab number, and
     // without agents, the first pane of the lowest tab.
-    const byNumber = (x: Record<string, unknown>, y: Record<string, unknown>): number => Number(field(x, "number") ?? 0) - Number(field(y, "number") ?? 0);
-    const workspaces = list("workspaces").map((w) => {
-      const id = ident(w, "workspace_id") ?? broken("workspace sem workspace_id");
-      const label = text(w, "label") ?? "";
-      const own = tabs.filter((t) => text(t, "workspace_id") === id).sort(byNumber);
-      const ownPanes = panes.filter((p) => text(p, "workspace_id") === id);
-      const tabOrder = (p: Record<string, unknown>): number => {
-        const i = own.findIndex((t) => ident(t, "tab_id") === text(p, "tab_id"));
-        return i === -1 ? own.length : i;
-      };
-      const withAgent = ownPanes.filter((p) => agents.some((a) => a.pane === ident(p, "pane_id"))).sort((x, y) => tabOrder(x) - tabOrder(y));
-      const ours = withAgent.filter((p) => agents.some((a) => DEMERZEL_AGENT.test(a.name) && a.pane === ident(p, "pane_id")));
+    const workspaces = workspaceRows.map(({ id, label }) => {
+      const own = tabRows.filter((t) => t.workspace === id).sort((x, y) => x.number - y.number);
+      const tabOrder = (p: { tab: string }): number => own.findIndex((t) => t.id === p.tab);
+      const ownPanes = paneRows.filter((p) => p.workspace === id);
+      const withAgent = ownPanes.filter((p) => agents.some((a) => a.pane === p.id)).sort((x, y) => tabOrder(x) - tabOrder(y));
+      const ours = withAgent.filter((p) => agents.some((a) => DEMERZEL_AGENT.test(a.name) && a.pane === p.id));
       if (ours.length > 1) broken(`workspace ${id} com agentes do Demerzel em ${ours.length} panes`);
       const chosen = ours[0] ?? withAgent[0];
-      if (chosen !== undefined) return { id, label, tab: ident(chosen, "tab_id"), pane: ident(chosen, "pane_id") };
-      const tab = own.length > 0 ? ident(own[0], "tab_id") : null;
-      const pane = tab === null ? null : (ownPanes.map((p) => (text(p, "tab_id") === tab ? ident(p, "pane_id") : null)).find((p) => p !== null) ?? null);
+      if (chosen !== undefined) return { id, label, tab: chosen.tab, pane: chosen.id };
+      const tab = own[0]?.id ?? null;
+      const pane = tab === null ? null : (ownPanes.find((p) => p.tab === tab)?.id ?? null);
       return { id, label, tab, pane };
     });
     return { agents, workspaces };
@@ -346,10 +378,14 @@ export class HerdrBackend implements Backend {
       let error: string | null = null;
       try {
         const got = this.herdr.run(["agent", "get", name]);
-        if (got.ok) {
-          cwd = text(got.result, "agent", "foreground_cwd");
+        // Only an answer about this agent tells where it is: another
+        // agent's cwd, or an empty one, never satisfies the postcondition.
+        if (!got.ok) error = `herdr agent get: ${got.code}: ${got.message}`;
+        else if (text(got.result, "agent", "name") !== name) error = "herdr agent get: resposta sem o nome deste agente";
+        else {
+          cwd = ident(got.result, "agent", "foreground_cwd");
           if (cwd === null) error = "herdr agent get: resposta sem agent.foreground_cwd";
-        } else error = `herdr agent get: ${got.code}: ${got.message}`;
+        }
       } catch (e) {
         if (!(e instanceof BackendError)) throw e;
         error = `${e.command}: ${e.detail}`;
