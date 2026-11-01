@@ -156,6 +156,42 @@ describe("snapshot (H3)", () => {
     await expect(herdr().snapshot()).rejects.toThrow("herdr api snapshot");
   });
 
+  // Protects: finding S3 of the sixth verification, the root tab is the one
+  // with the lowest number, whatever the list order. Fails if the first tab
+  // of the list is taken.
+  test("the root tab is chosen by number", async () => {
+    fake.script({ start: { codex: "error", claude: "error" } });
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "extra-tab-first" });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w1", label: "TC-0099.1 dz-0123456789abcdef", tab: "w1:t1", pane: "w1:p1" }]);
+  });
+
+  // Protects: finding S1 of the sixth verification, the pane of a workspace
+  // is the pane of the agent named in its label (Spec 2.5) when that agent
+  // is in the workspace, so a split pane listed first never makes the agent
+  // look lost. Fails if the first pane of the list is taken.
+  test("the agent's pane wins over a split pane listed first", async () => {
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "extra-pane-first" });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w1", label: "TC-0099.1 dz-0123456789abcdef", tab: "w1:t1", pane: "w1:p1" }]);
+  });
+
+  // Protects: S1 end to end, close refuses a working agent whose workspace
+  // has a split pane listed first. Fails if close exits 0 and closes it.
+  test("close refuses a working agent beside a split pane", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    fake.script({ snapshot: "extra-pane-first" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("task-working");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
   // Protects: finding V1 of the fifth verification, a named agent without
   // its pane or state, or a workspace without its ID, is a broken snapshot,
   // not an absent agent or workspace. Fails if the entry is dropped or
@@ -498,6 +534,23 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     expect((await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)))).code).toBe(0);
     expect(fake.state().workspaces).toEqual([]);
   });
+
+  // Protects: finding S2 of the sixth verification, an empty workspace ID
+  // in the creation's confirmation is not a confirmation: the launch takes
+  // the failure path, finds the workspace by label, and a later close
+  // closes it, in both modes. Fails if the empty ID is recorded.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`an empty workspace ID in the creation answer, ${harness}`, async () => {
+      fake.script({ createAnswer: "empty-workspace-id" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids.workspace).toBe("w1");
+      fake.script({ createAnswer: "ok" });
+      const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+      expect(c.code).toBe(0);
+      expect(fake.state().workspaces).toEqual([]);
+    });
+  }
 
   // Protects: TC-0002 Emenda 1 (finding Q1), when the creation's answer and
   // the reconciliation snapshot both fail, close still finds the workspace

@@ -11,7 +11,7 @@ type Workspace = { id: string; label: string; tab: string; pane: string; cwd: st
 type Script = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id" | "extra-pane-first" | "extra-tab-first";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
@@ -22,7 +22,7 @@ type Script = {
   closeFails: boolean;
   closeAnswer: "ok" | "empty";
   statusExit: number;
-  createAnswer: "ok" | "garbage-after" | "empty-noop";
+  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script; snapshotFailed?: boolean };
@@ -108,8 +108,18 @@ if (group === "api" && verb === "snapshot") {
           ...s.extraAgents,
         ],
         workspaces: [...state.workspaces.map((w, i) => (broken === "workspace-without-id" ? { label: w.label, number: i + 1 } : { workspace_id: w.id, label: w.label, number: i + 1 })), ...s.extraWorkspaces],
-        tabs: state.workspaces.map((w) => ({ tab_id: w.tab, workspace_id: w.id, number: 1, label: "1" })),
-        panes: state.workspaces.map((w) => ({ pane_id: w.pane, tab_id: w.tab, workspace_id: w.id })),
+        // extra-tab-first lists a second tab, with its own pane, before the
+        // first one; extra-pane-first lists a split pane before the root pane
+        // of the same tab. Neither order says which pane is the root.
+        tabs: state.workspaces.flatMap((w) => [
+          ...(broken === "extra-tab-first" ? [{ tab_id: `${w.id}:t2`, workspace_id: w.id, number: 2, label: "2" }] : []),
+          { tab_id: w.tab, workspace_id: w.id, number: 1, label: "1" },
+        ]),
+        panes: state.workspaces.flatMap((w) => [
+          ...(broken === "extra-tab-first" ? [{ pane_id: `${w.id}:p9`, tab_id: `${w.id}:t2`, workspace_id: w.id }] : []),
+          ...(broken === "extra-pane-first" ? [{ pane_id: `${w.id}:p2`, tab_id: w.tab, workspace_id: w.id }] : []),
+          { pane_id: w.pane, tab_id: w.tab, workspace_id: w.id },
+        ]),
       },
     },
     "cli:api:snapshot",
@@ -119,6 +129,10 @@ if (group === "api" && verb === "snapshot") {
 // A creation whose answer is lost after the effect, or a success that
 // created nothing: the real state and the answer disagree on purpose.
 function answerCreate(result: Record<string, unknown>, id: string): never {
+  if (s.createAnswer === "empty-workspace-id") {
+    (result["workspace"] as Record<string, unknown>)["workspace_id"] = "";
+    ok(result, id);
+  }
   if (s.createAnswer === "garbage-after") {
     process.stdout.write("isto não é JSON\n");
     process.exit(0);

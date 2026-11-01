@@ -30,4 +30,11 @@ describe("module boundaries", () => {
   test("src/herdr does not reach Radiant", () => {
     expect(offenders(join(SRC, "herdr"), /["'`](?:\.\.?\/)+(?:[^"'`\n]*\/)?radiant(?:\/[^"'`\n]*)?["'`]|\.radiant\b|radiant-units|check_project/)).toEqual([]);
   });
+
+  // Protects: `src/herdr/run.ts` is the single place that runs the herdr
+  // executable (finding S4 of the sixth verification); Git runs only from
+  // `src/core/git.ts`. Fails if any other file of src/ spawns a process.
+  test("processes run only from src/herdr/run.ts and src/core/git.ts", () => {
+    expect(offenders(SRC, /\bspawn(?:Sync)?\s*\(|child_process/).filter((path) => path !== join("herdr", "run.ts") && path !== join("core", "git.ts"))).toEqual([]);
+  });
 });

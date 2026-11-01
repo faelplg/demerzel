@@ -4,7 +4,7 @@ import type { Env } from "../core/env.ts";
 import { git } from "../core/git.ts";
 import type { BackendIds, Created } from "../core/types.ts";
 import type { HerdrConfig } from "./config.ts";
-import { field, Herdr, text } from "./run.ts";
+import { field, Herdr, ident, text } from "./run.ts";
 
 // The herdr implementation of the core backend (Spec 2.5, revision 0.9).
 
@@ -93,20 +93,20 @@ export class HerdrBackend implements Backend {
     const down = (detail: string): Probe => ({ running: false, compatible: false, versionOk: false, version: null, minimum: MINIMUM, detail });
     let proc;
     try {
-      proc = Bun.spawnSync(["herdr", ...this.herdr.args(["status", "--json"])], { env: { ...this.env }, stdout: "pipe", stderr: "pipe" });
+      proc = this.herdr.exec(["status", "--json"]);
     } catch (error) {
       return down(`herdr não encontrado no PATH: ${error instanceof Error ? error.message : String(error)}`);
     }
     // A status run that fails is not a usable backend, whatever it printed.
     if (proc.exitCode !== 0) {
-      const said = proc.stderr.toString().trim();
+      const said = proc.stderr;
       return down(`herdr status --json saiu com ${proc.exitCode ?? "?"}${said === "" ? "" : `: ${said.slice(0, 300)}`}`);
     }
     let data: unknown;
     try {
-      data = JSON.parse(proc.stdout.toString());
+      data = JSON.parse(proc.stdout);
     } catch {
-      const said = proc.stderr.toString().trim() || proc.stdout.toString().trim();
+      const said = proc.stderr || proc.stdout;
       return down(`herdr status --json não devolveu JSON (saída ${proc.exitCode ?? "?"})${said === "" ? "" : `: ${said.slice(0, 300)}`}`);
     }
     const running = field(data, "server", "running") === true;
@@ -132,23 +132,33 @@ export class HerdrBackend implements Backend {
     // agent without its pane or state is a broken answer, never an absent
     // agent: dropping it would let close end a working agent.
     const agents = list("agents").flatMap((a) => {
-      const name = text(a, "name");
-      if (name === null || name === "") return [];
-      const pane = text(a, "pane_id");
-      if (pane === null || pane === "") return broken(`agente ${name} sem pane_id`);
+      const name = ident(a, "name");
+      if (name === null) return [];
+      const pane = ident(a, "pane_id");
+      if (pane === null) return broken(`agente ${name} sem pane_id`);
       const raw = text(a, "agent_status") ?? broken(`agente ${name} sem agent_status`);
       const status = AGENT_STATUS.has(raw as SnapshotAgentStatus) ? (raw as SnapshotAgentStatus) : "unknown";
       return [{ name, status, pane }];
     });
     const tabs = list("tabs");
     const panes = list("panes");
+    // The herdr does not mark a root pane. The pane of a workspace is the
+    // pane of the agent its label names (Spec 2.5: task ID, a space and the
+    // agent name) when that agent is in the workspace; otherwise the first
+    // pane of the tab with the lowest number. A split pane listed first must
+    // never make the task's agent look lost.
     const workspaces = list("workspaces").map((w) => {
-      const id = text(w, "workspace_id");
-      if (id === null || id === "") return broken("workspace sem workspace_id");
+      const id = ident(w, "workspace_id") ?? broken("workspace sem workspace_id");
+      const label = text(w, "label") ?? "";
+      const ownPanes = panes.filter((p) => text(p, "workspace_id") === id);
+      const named = label.split(" ").at(-1) ?? "";
+      const agent = agents.find((a) => a.name === named);
+      const agentPane = agent === undefined ? undefined : ownPanes.find((p) => ident(p, "pane_id") === agent.pane);
+      if (agentPane !== undefined) return { id, label, tab: ident(agentPane, "tab_id"), pane: agent?.pane ?? null };
       const own = tabs.filter((t) => text(t, "workspace_id") === id).sort((x, y) => Number(field(x, "number") ?? 0) - Number(field(y, "number") ?? 0));
-      const tab = own.length > 0 ? text(own[0], "tab_id") : null;
-      const pane = tab === null ? null : (panes.map((p) => (text(p, "tab_id") === tab ? text(p, "pane_id") : null)).find((p) => p !== null) ?? null);
-      return { id, label: text(w, "label") ?? "", tab, pane };
+      const tab = own.length > 0 ? ident(own[0], "tab_id") : null;
+      const pane = tab === null ? null : (ownPanes.map((p) => (text(p, "tab_id") === tab ? ident(p, "pane_id") : null)).find((p) => p !== null) ?? null);
+      return { id, label, tab, pane };
     });
     return { agents, workspaces };
   }
@@ -233,9 +243,9 @@ export class HerdrBackend implements Backend {
       if (worktreeConfirmed()) report({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
     };
     const reportSession = (result: Record<string, unknown>): string | null => {
-      const workspace = text(result, "workspace", "workspace_id");
-      const tab = text(result, "tab", "tab_id") ?? text(result, "root_pane", "tab_id");
-      const pane = text(result, "root_pane", "pane_id");
+      const workspace = ident(result, "workspace", "workspace_id");
+      const tab = ident(result, "tab", "tab_id") ?? ident(result, "root_pane", "tab_id");
+      const pane = ident(result, "root_pane", "pane_id");
       if (workspace === null || pane === null) return null;
       report({ kind: "workspace", id: workspace });
       if (tab !== null) report({ kind: "tab", id: tab });

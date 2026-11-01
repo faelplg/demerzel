@@ -19,20 +19,27 @@ export class Herdr {
     return this.session === null ? [...args] : ["--session", this.session, ...args];
   }
 
+  // Runs the herdr executable and returns its exit code and output, or
+  // throws BackendError when it cannot run. Every herdr call goes through
+  // here; `run` and the probe only read the output differently.
+  exec(args: readonly string[]): { exitCode: number | null; stdout: string; stderr: string } {
+    let proc;
+    try {
+      proc = Bun.spawnSync(["herdr", ...this.args(args)], { env: { ...this.env }, stdout: "pipe", stderr: "pipe" });
+    } catch (error) {
+      throw new BackendError(`herdr ${args.slice(0, 2).join(" ")}`, `herdr não pôde ser executado: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return { exitCode: proc.exitCode, stdout: proc.stdout.toString().trim(), stderr: proc.stderr.toString().trim() };
+  }
+
   // Runs one herdr command and reads its JSON answer. A herdr error answer
   // comes back as a value; a missing executable, an answer that is not JSON
   // or one without `result` or `error` is a BackendError.
   run(args: readonly string[]): HerdrReply {
     const command = `herdr ${args.slice(0, 2).join(" ")}`;
-    let proc;
-    try {
-      proc = Bun.spawnSync(["herdr", ...this.args(args)], { env: { ...this.env }, stdout: "pipe", stderr: "pipe" });
-    } catch (error) {
-      throw new BackendError(command, `herdr não pôde ser executado: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const proc = this.exec(args);
     // herdr 0.9.0 answers on stdout on success and on stderr on error.
-    const stdout = proc.stdout.toString().trim();
-    const stderr = proc.stderr.toString().trim();
+    const { stdout, stderr } = proc;
     const body = stdout !== "" ? stdout : stderr;
     let data: unknown;
     try {
@@ -73,4 +80,11 @@ export function field(value: unknown, ...path: string[]): unknown {
 export function text(value: unknown, ...path: string[]): string | null {
   const v = field(value, ...path);
   return typeof v === "string" ? v : null;
+}
+
+// An identifier the herdr gave: a non-empty string, or null. An empty ID is
+// never a resource the Demerzel can address later.
+export function ident(value: unknown, ...path: string[]): string | null {
+  const v = text(value, ...path);
+  return v === null || v === "" ? null : v;
 }
