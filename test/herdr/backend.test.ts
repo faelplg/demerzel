@@ -93,6 +93,37 @@ describe("probe (H2)", () => {
     expect(missing.detail).toContain("herdr");
   });
 
+  // Protects: finding V2 of the fifth verification, a status run that exits
+  // non-zero is a backend that is not usable, even when it prints a usable
+  // answer. Fails if the probe reads the answer and ignores the exit code.
+  test("a status run that exits non-zero", async () => {
+    fake.script({ statusExit: 1 });
+    const probe = await herdr().probe();
+    expect(probe.running).toBe(false);
+    expect(probe.detail).toContain("herdr status --json saiu com 1");
+  });
+
+  // Protects: V2 end to end, dispatch and close refuse with
+  // backend-unavailable and no effect. Fails if a non-zero status lets
+  // either one create, close or write.
+  test("dispatch and close refuse a status run that exits non-zero", async () => {
+    const first = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(first.code).toBe(0);
+    fake.setAgentStatus(first.envelope.tasks[0]?.agent_name ?? "", "idle");
+    fake.script({ statusExit: 1 });
+    const before = sb.tasksSnapshot();
+    const workspaces = fake.state().workspaces.length;
+
+    const second = await dispatch({ task: task({ id: "TC-0099.2" }), humanApproved: false }, ctx(herdr(null)));
+    expect(second.code).toBe(2);
+    expect(second.envelope.refusal?.code).toBe("backend-unavailable");
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(workspaces);
+  });
+
   test("version comparison", () => {
     expect(versionAtLeast("0.9.0", "0.9.0")).toBe(true);
     expect(versionAtLeast("0.10.1", "0.9.0")).toBe(true);
@@ -123,6 +154,36 @@ describe("snapshot (H3)", () => {
     await expect(herdr().snapshot()).rejects.toBeInstanceOf(BackendError);
     fake.script({ snapshot: "no-lists" });
     await expect(herdr().snapshot()).rejects.toThrow("herdr api snapshot");
+  });
+
+  // Protects: finding V1 of the fifth verification, a named agent without
+  // its pane or state, or a workspace without its ID, is a broken snapshot,
+  // not an absent agent or workspace. Fails if the entry is dropped or
+  // filled in.
+  test("a named agent or a workspace missing a required field", async () => {
+    await launch(herdr(), plan());
+    for (const mode of ["agent-without-pane", "agent-without-status", "workspace-without-id"] as const) {
+      fake.script({ snapshot: mode });
+      const error = await herdr().snapshot().catch((e: unknown) => e);
+      expect(error, mode).toBeInstanceOf(BackendError);
+      expect(String((error as Error).message), mode).toContain("herdr api snapshot");
+    }
+  });
+
+  // Protects: V1 end to end, close never ends a working agent because the
+  // snapshot lost its pane. Fails if close exits 0 and closes the workspace.
+  test("close refuses when the working agent comes without its pane", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    expect(fake.state().agents[0]?.status).toBe("working");
+    fake.script({ snapshot: "agent-without-pane" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+    expect(fake.state().agents).toHaveLength(1);
   });
 });
 

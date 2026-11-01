@@ -8,7 +8,7 @@ import type { Env } from "../../../src/core/env.ts";
 export type FakeHerdrScript = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
@@ -18,6 +18,7 @@ export type FakeHerdrScript = {
   paneBusy: number;
   closeFails: boolean;
   closeAnswer: "ok" | "empty";
+  statusExit: number;
   createAnswer: "ok" | "garbage-after" | "empty-noop";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -35,6 +36,7 @@ export const defaultScript: FakeHerdrScript = {
   paneBusy: 0,
   closeFails: false,
   closeAnswer: "ok",
+  statusExit: 0,
   createAnswer: "ok",
   extraWorkspaces: [],
 };

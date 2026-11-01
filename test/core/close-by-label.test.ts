@@ -42,7 +42,9 @@ class CloseFails extends FakeBackend {
 
 describe("close finds a workspace whose ID was never recorded", () => {
   // Protects: Q1. Fails if close trusts only the recorded ID, exits 0 and
-  // leaves the workspace of the task open in the backend.
+  // leaves the workspace of the task open in the backend, or if the
+  // `workspace-found` entry that Emenda 1 asks for is left out of the
+  // history (finding V3 of the fifth verification).
   test("the workspace is found by label, closed and its ID recorded", async () => {
     const be = new FakeBackend(sb.env, { script: { failAfter: "worktree" } });
     await launchWithoutWorkspaceId(be);
@@ -55,7 +57,10 @@ describe("close finds a workspace whose ID was never recorded", () => {
     const r = record();
     expect(r.lifecycle).toBe("closed");
     expect(r.backend_ids.workspace).toBe(lost);
-    expect(r.history.at(-1)?.detail).toEqual({ workspace_closed: lost });
+    expect(r.history.slice(-2).map((h) => [h.event, h.detail])).toEqual([
+      ["workspace-found", { workspace: lost, by: "label" }],
+      ["closed", { workspace_closed: lost }],
+    ]);
   });
 
   // Protects: the lookup takes only this task's label. Fails if close
@@ -84,6 +89,7 @@ describe("close finds a workspace whose ID was never recorded", () => {
     expect(first.code).toBe(1);
     expect(record().lifecycle).toBe("launch-failed");
     expect(record().backend_ids.workspace).toBe(lost);
+    expect(record().history.slice(-2).map((h) => h.event)).toEqual(["workspace-found", "close-failed"]);
     expect(first.envelope.tasks[0]?.backend_error).toBe("herdr workspace close: falha injetada");
 
     const second = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));

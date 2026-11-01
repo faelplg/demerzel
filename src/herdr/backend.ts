@@ -97,6 +97,11 @@ export class HerdrBackend implements Backend {
     } catch (error) {
       return down(`herdr não encontrado no PATH: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // A status run that fails is not a usable backend, whatever it printed.
+    if (proc.exitCode !== 0) {
+      const said = proc.stderr.toString().trim();
+      return down(`herdr status --json saiu com ${proc.exitCode ?? "?"}${said === "" ? "" : `: ${said.slice(0, 300)}`}`);
+    }
     let data: unknown;
     try {
       data = JSON.parse(proc.stdout.toString());
@@ -120,18 +125,26 @@ export class HerdrBackend implements Backend {
       if (!Array.isArray(value)) throw new BackendError("herdr api snapshot", `snapshot sem a lista ${key}`);
       return value as Record<string, unknown>[];
     };
+    const broken = (detail: string): never => {
+      throw new BackendError("herdr api snapshot", detail);
+    };
+    // Agents without a name are not the Demerzel's and are left out. A named
+    // agent without its pane or state is a broken answer, never an absent
+    // agent: dropping it would let close end a working agent.
     const agents = list("agents").flatMap((a) => {
       const name = text(a, "name");
+      if (name === null || name === "") return [];
       const pane = text(a, "pane_id");
-      if (name === null || name === "" || pane === null) return [];
-      const raw = text(a, "agent_status") ?? "unknown";
+      if (pane === null || pane === "") return broken(`agente ${name} sem pane_id`);
+      const raw = text(a, "agent_status") ?? broken(`agente ${name} sem agent_status`);
       const status = AGENT_STATUS.has(raw as SnapshotAgentStatus) ? (raw as SnapshotAgentStatus) : "unknown";
       return [{ name, status, pane }];
     });
     const tabs = list("tabs");
     const panes = list("panes");
     const workspaces = list("workspaces").map((w) => {
-      const id = text(w, "workspace_id") ?? "";
+      const id = text(w, "workspace_id");
+      if (id === null || id === "") return broken("workspace sem workspace_id");
       const own = tabs.filter((t) => text(t, "workspace_id") === id).sort((x, y) => Number(field(x, "number") ?? 0) - Number(field(y, "number") ?? 0));
       const tab = own.length > 0 ? text(own[0], "tab_id") : null;
       const pane = tab === null ? null : (panes.map((p) => (text(p, "tab_id") === tab ? text(p, "pane_id") : null)).find((p) => p !== null) ?? null);

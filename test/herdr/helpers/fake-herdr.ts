@@ -11,7 +11,7 @@ type Workspace = { id: string; label: string; tab: string; pane: string; cwd: st
 type Script = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
   hook: "run" | "skip" | "wrong-path";
   cwd: "worktree" | "root";
@@ -21,6 +21,7 @@ type Script = {
   paneBusy: number;
   closeFails: boolean;
   closeAnswer: "ok" | "empty";
+  statusExit: number;
   createAnswer: "ok" | "garbage-after" | "empty-noop";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -72,7 +73,8 @@ function sessionResult(w: Workspace, type: string): Record<string, unknown> {
 
 if (group === "status") {
   process.stdout.write(`${JSON.stringify({ client: { version: "0.9.0" }, server: { running: s.running, compatible: s.running, version: s.running ? s.version : null, session: "fake" } })}\n`);
-  process.exit(0);
+  // A failed status run that still prints a usable answer.
+  process.exit(s.statusExit);
 }
 if (!s.running) fail("server_not_running", "server not running", `cli:${group}:${verb}`);
 
@@ -88,16 +90,24 @@ if (group === "api" && verb === "snapshot") {
     save();
     fail("server_not_running", "connection lost", "cli:api:snapshot");
   }
+  // A named agent or a workspace missing a field the core relies on.
+  const broken = s.snapshot;
+  const agentFields = (a: Agent): Record<string, unknown> => {
+    const out: Record<string, unknown> = { name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane, tab_id: a.tab, workspace_id: a.workspace, foreground_cwd: a.cwd };
+    if (broken === "agent-without-pane") out["pane_id"] = null;
+    if (broken === "agent-without-status") delete out["agent_status"];
+    return out;
+  };
   if (s.snapshot === "no-lists") ok({ type: "snapshot", snapshot: { agents: [] } }, "cli:api:snapshot");
   ok(
     {
       type: "snapshot",
       snapshot: {
         agents: [
-          ...state.agents.map((a) => ({ name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane, tab_id: a.tab, workspace_id: a.workspace, foreground_cwd: a.cwd })),
+          ...state.agents.map(agentFields),
           ...s.extraAgents,
         ],
-        workspaces: [...state.workspaces.map((w, i) => ({ workspace_id: w.id, label: w.label, number: i + 1 })), ...s.extraWorkspaces],
+        workspaces: [...state.workspaces.map((w, i) => (broken === "workspace-without-id" ? { label: w.label, number: i + 1 } : { workspace_id: w.id, label: w.label, number: i + 1 })), ...s.extraWorkspaces],
         tabs: state.workspaces.map((w) => ({ tab_id: w.tab, workspace_id: w.id, number: 1, label: "1" })),
         panes: state.workspaces.map((w) => ({ pane_id: w.pane, tab_id: w.tab, workspace_id: w.id })),
       },
