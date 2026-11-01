@@ -271,6 +271,13 @@ describe("snapshot (H3)", () => {
       expect(error, relation).toBeInstanceOf(BackendError);
       expect(String((error as Error).message), relation).toContain("herdr api snapshot");
     }
+    // The same faults on a split pane with no agent, listed first, which
+    // only the pane checks can catch.
+    for (const relation of ["pane-without-workspace", "pane-without-tab", "pane-in-other-workspace", "duplicate-pane"] as const) {
+      fake.script({ snapshot: "extra-pane-first", relation });
+      const error = await herdr().snapshot().catch((e: unknown) => e);
+      expect(error, `${relation} on a split pane`).toBeInstanceOf(BackendError);
+    }
   });
 
   // Protects: J1 end to end, close refuses a working agent when its pane
