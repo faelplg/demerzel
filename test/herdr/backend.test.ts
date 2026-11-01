@@ -124,6 +124,16 @@ describe("probe (H2)", () => {
     expect(fake.state().workspaces).toHaveLength(workspaces);
   });
 
+  // Protects: finding R3 of the seventh verification, a status answer that
+  // is not JSON is a backend that is not usable. Fails if the probe reads it
+  // as running.
+  test("a status answer that is not JSON", async () => {
+    fake.script({ statusAnswer: "garbage" });
+    const probe = await herdr().probe();
+    expect(probe.running).toBe(false);
+    expect(probe.detail).toContain("não devolveu JSON");
+  });
+
   test("version comparison", () => {
     expect(versionAtLeast("0.9.0", "0.9.0")).toBe(true);
     expect(versionAtLeast("0.10.1", "0.9.0")).toBe(true);
@@ -184,6 +194,31 @@ describe("snapshot (H3)", () => {
     const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
     expect(d.code).toBe(0);
     fake.script({ snapshot: "extra-pane-first" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("task-working");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  // Protects: finding R1 of the seventh verification, a workspace whose
+  // label a human changed still shows the named agent that lives in it, even
+  // beside a split pane listed first. Fails if the first pane of the list is
+  // taken once the label no longer names the agent.
+  test("a renamed workspace keeps its agent's pane", async () => {
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "renamed-split" });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w1", label: "nome dado pelo humano", tab: "w1:t1", pane: "w1:p1" }]);
+  });
+
+  // Protects: R1 end to end. Fails if close exits 0 and closes a working
+  // agent whose workspace was renamed and split.
+  test("close refuses a working agent in a renamed and split workspace", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    fake.script({ snapshot: "renamed-split" });
     const before = sb.tasksSnapshot();
     const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
     expect(c.code).toBe(2);
@@ -339,6 +374,36 @@ describe("launch (H5, H6, H7)", () => {
     const unchecked = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000003", branch: "radiant/f", worktreePath: join(sb.root, "wt", "f") }));
     expect(unchecked.outcome.kind).toBe("failed");
     expect(unchecked.kinds).toEqual(["workspace", "tab", "pane", "agent"]);
+  });
+
+  // Protects: finding R3 of the seventh verification, on a blocked startup
+  // with the session in the right worktree, the branch is still checked:
+  // missing, or moved off the base commit, the launch fails. Fails if a
+  // blocked startup skips the Git check, which a wrong cwd used to hide.
+  test("blocked startup with the right cwd and a bad branch", async () => {
+    fake.script({ start: { claude: "not_ready", codex: "not_ready" }, hook: "then-drop-branch" });
+    const dropped = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000004", branch: "radiant/n", worktreePath: join(sb.root, "wt", "n") }));
+    expect(dropped.outcome.kind).toBe("failed");
+    expect(dropped.outcome.kind === "failed" ? dropped.outcome.reason : "").toContain("branch radiant/n não existe");
+    expect(dropped.outcome.kind === "failed" ? dropped.outcome.reason : "").not.toContain("cwd");
+
+    fake.script({ hook: "then-move-branch" });
+    const moved = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000005", branch: "radiant/o", worktreePath: join(sb.root, "wt", "o") }));
+    expect(moved.outcome.kind).toBe("failed");
+    expect(moved.outcome.kind === "failed" ? moved.outcome.reason : "").toContain("não para o commit base");
+    expect(moved.outcome.kind === "failed" ? moved.outcome.reason : "").not.toContain("cwd");
+  });
+
+  // Protects: finding R2 of the seventh verification, an error of
+  // `herdr agent get` during the Claude Code postcondition reaches the
+  // failure with the command and the herdr error. Fails if it turns into a
+  // bare unknown cwd.
+  test("an agent get error during the postcondition", async () => {
+    fake.script({ agentGet: "error" });
+    const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000006", branch: "radiant/p", worktreePath: join(sb.root, "wt", "p") }));
+    expect(r.outcome.kind).toBe("failed");
+    const reason = r.outcome.kind === "failed" ? r.outcome.reason : "";
+    expect(reason).toContain("herdr agent get: agent_not_found: consulta do agente falhou");
   });
 
   // Protects: a pane whose shell is not ready yet is retried, in both modes,

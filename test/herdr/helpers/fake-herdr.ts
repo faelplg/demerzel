@@ -11,9 +11,9 @@ type Workspace = { id: string; label: string; tab: string; pane: string; cwd: st
 type Script = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id" | "extra-pane-first" | "extra-tab-first";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id" | "extra-pane-first" | "extra-tab-first" | "renamed-split";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
-  hook: "run" | "skip" | "wrong-path";
+  hook: "run" | "skip" | "wrong-path" | "then-drop-branch" | "then-move-branch";
   cwd: "worktree" | "root";
   prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo" | "echo-code" | "echo-name" | "echo-status";
   statusAfterPrompt: string;
@@ -22,6 +22,8 @@ type Script = {
   closeFails: boolean;
   closeAnswer: "ok" | "empty";
   statusExit: number;
+  statusAnswer: "ok" | "garbage";
+  agentGet: "ok" | "error";
   createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -72,6 +74,10 @@ function sessionResult(w: Workspace, type: string): Record<string, unknown> {
 }
 
 if (group === "status") {
+  if (s.statusAnswer === "garbage") {
+    process.stdout.write("isto não é JSON\n");
+    process.exit(0);
+  }
   process.stdout.write(`${JSON.stringify({ client: { version: "0.9.0" }, server: { running: s.running, compatible: s.running, version: s.running ? s.version : null, session: "fake" } })}\n`);
   // A failed status run that still prints a usable answer.
   process.exit(s.statusExit);
@@ -107,7 +113,8 @@ if (group === "api" && verb === "snapshot") {
           ...state.agents.map(agentFields),
           ...s.extraAgents,
         ],
-        workspaces: [...state.workspaces.map((w, i) => (broken === "workspace-without-id" ? { label: w.label, number: i + 1 } : { workspace_id: w.id, label: w.label, number: i + 1 })), ...s.extraWorkspaces],
+        // renamed-split: a human renamed the workspace and split its pane.
+        workspaces: [...state.workspaces.map((w, i) => (broken === "workspace-without-id" ? { label: w.label, number: i + 1 } : { workspace_id: w.id, label: broken === "renamed-split" ? "nome dado pelo humano" : w.label, number: i + 1 })), ...s.extraWorkspaces],
         // extra-tab-first lists a second tab, with its own pane, before the
         // first one; extra-pane-first lists a split pane before the root pane
         // of the same tab. Neither order says which pane is the root.
@@ -117,7 +124,7 @@ if (group === "api" && verb === "snapshot") {
         ]),
         panes: state.workspaces.flatMap((w) => [
           ...(broken === "extra-tab-first" ? [{ pane_id: `${w.id}:p9`, tab_id: `${w.id}:t2`, workspace_id: w.id }] : []),
-          ...(broken === "extra-pane-first" ? [{ pane_id: `${w.id}:p2`, tab_id: w.tab, workspace_id: w.id }] : []),
+          ...(broken === "extra-pane-first" || broken === "renamed-split" ? [{ pane_id: `${w.id}:p2`, tab_id: w.tab, workspace_id: w.id }] : []),
           { pane_id: w.pane, tab_id: w.tab, workspace_id: w.id },
         ]),
       },
@@ -193,6 +200,17 @@ if (group === "agent" && verb === "start") {
     const r = Bun.spawnSync(["/bin/sh", "-c", command], { cwd: w.cwd, env: process.env, stdout: "pipe", stderr: "pipe" });
     const printed = r.stdout.toString().trim();
     if (r.exitCode === 0) cwd = s.hook === "wrong-path" ? w.cwd : printed;
+    // The session stays in the worktree, but its branch is gone or moved
+    // off the base commit, so only the Git check can catch it.
+    if (r.exitCode === 0 && (s.hook === "then-drop-branch" || s.hook === "then-move-branch")) {
+      const git = (dir: string, ...a: string[]) => Bun.spawnSync(["git", "-C", dir, "-c", "user.name=fake", "-c", "user.email=fake@example.invalid", ...a], { env: process.env, stdout: "pipe", stderr: "pipe" });
+      const branch = git(printed, "rev-parse", "--abbrev-ref", "HEAD").stdout.toString().trim();
+      if (s.hook === "then-move-branch") git(printed, "commit", "-q", "--allow-empty", "-m", "fora da base");
+      else {
+        git(printed, "checkout", "-q", "--detach");
+        git(w.cwd, "branch", "-q", "-D", branch);
+      }
+    }
   }
   if (s.cwd === "root") cwd = w.cwd;
   const outcome = s.start[kind] ?? "ready";
@@ -214,6 +232,7 @@ if (group === "agent" && verb === "start") {
 }
 
 if (group === "agent" && verb === "get") {
+  if (s.agentGet === "error") fail("agent_not_found", "consulta do agente falhou", "cli:agent:get");
   const a = state.agents.find((x) => x.name === rest[0]);
   if (a === undefined) fail("agent_not_found", `agent target ${rest[0]} not found`, "cli:agent:get");
   ok({ agent: { name: a.name, agent: a.kind, agent_status: a.status, pane_id: a.pane, foreground_cwd: a.cwd } }, "cli:agent:get");

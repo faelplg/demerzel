@@ -8,9 +8,9 @@ import type { Env } from "../../../src/core/env.ts";
 export type FakeHerdrScript = {
   running: boolean;
   version: string;
-  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id" | "extra-pane-first" | "extra-tab-first";
+  snapshot: "ok" | "garbage" | "no-lists" | "fail-once-with-workspace" | "agent-without-pane" | "agent-without-status" | "workspace-without-id" | "extra-pane-first" | "extra-tab-first" | "renamed-split";
   start: Record<string, "ready" | "not_ready" | "error" | "ok-empty" | "garbage" | "started-garbage">;
-  hook: "run" | "skip" | "wrong-path";
+  hook: "run" | "skip" | "wrong-path" | "then-drop-branch" | "then-move-branch";
   cwd: "worktree" | "root";
   prompt: "ok" | "agent_blocked" | "agent_not_ready" | "agent_prompt_stalled" | "ok-no-status" | "result-exit-1" | "echo-garbage" | "other-agent" | "error-echo" | "echo-code" | "echo-name" | "echo-status";
   statusAfterPrompt: string;
@@ -19,6 +19,8 @@ export type FakeHerdrScript = {
   closeFails: boolean;
   closeAnswer: "ok" | "empty";
   statusExit: number;
+  statusAnswer: "ok" | "garbage";
+  agentGet: "ok" | "error";
   createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
@@ -37,6 +39,8 @@ export const defaultScript: FakeHerdrScript = {
   closeFails: false,
   closeAnswer: "ok",
   statusExit: 0,
+  statusAnswer: "ok",
+  agentGet: "ok",
   createAnswer: "ok",
   extraWorkspaces: [],
 };

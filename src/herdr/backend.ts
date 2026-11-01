@@ -142,20 +142,27 @@ export class HerdrBackend implements Backend {
     });
     const tabs = list("tabs");
     const panes = list("panes");
-    // The herdr does not mark a root pane. The pane of a workspace is the
-    // pane of the agent its label names (Spec 2.5: task ID, a space and the
-    // agent name) when that agent is in the workspace; otherwise the first
-    // pane of the tab with the lowest number. A split pane listed first must
-    // never make the task's agent look lost.
+    // The herdr does not mark a root pane, and the core sees one pane per
+    // workspace. A pane that holds a named agent must never be the one left
+    // out, or a working agent would look lost. So the pane of a workspace is
+    // the pane of the agent its label names (Spec 2.5: task ID, a space and
+    // the agent name); if the label no longer names an agent in it, as after
+    // a human renamed it, the pane of the first named agent in it, by tab
+    // number; and only without agents, the first pane of the lowest tab.
+    const byNumber = (x: Record<string, unknown>, y: Record<string, unknown>): number => Number(field(x, "number") ?? 0) - Number(field(y, "number") ?? 0);
     const workspaces = list("workspaces").map((w) => {
       const id = ident(w, "workspace_id") ?? broken("workspace sem workspace_id");
       const label = text(w, "label") ?? "";
+      const own = tabs.filter((t) => text(t, "workspace_id") === id).sort(byNumber);
       const ownPanes = panes.filter((p) => text(p, "workspace_id") === id);
+      const tabOrder = (p: Record<string, unknown>): number => {
+        const i = own.findIndex((t) => ident(t, "tab_id") === text(p, "tab_id"));
+        return i === -1 ? own.length : i;
+      };
+      const withAgent = ownPanes.filter((p) => agents.some((a) => a.pane === ident(p, "pane_id"))).sort((x, y) => tabOrder(x) - tabOrder(y));
       const named = label.split(" ").at(-1) ?? "";
-      const agent = agents.find((a) => a.name === named);
-      const agentPane = agent === undefined ? undefined : ownPanes.find((p) => ident(p, "pane_id") === agent.pane);
-      if (agentPane !== undefined) return { id, label, tab: ident(agentPane, "tab_id"), pane: agent?.pane ?? null };
-      const own = tabs.filter((t) => text(t, "workspace_id") === id).sort((x, y) => Number(field(x, "number") ?? 0) - Number(field(y, "number") ?? 0));
+      const chosen = withAgent.find((p) => agents.some((a) => a.name === named && a.pane === ident(p, "pane_id"))) ?? withAgent[0];
+      if (chosen !== undefined) return { id, label, tab: ident(chosen, "tab_id"), pane: ident(chosen, "pane_id") };
       const tab = own.length > 0 ? ident(own[0], "tab_id") : null;
       const pane = tab === null ? null : (ownPanes.map((p) => (text(p, "tab_id") === tab ? ident(p, "pane_id") : null)).find((p) => p !== null) ?? null);
       return { id, label, tab, pane };
@@ -315,10 +322,10 @@ export class HerdrBackend implements Backend {
     // Spec 2.5, revision 0.9: the postcondition holds also on a blocked
     // startup, so resume never sends to a worktree nobody checked.
     report({ kind: "agent", name: plan.agentName });
-    const cwd = await this.agentCwd(plan.agentName, plan.worktreePath);
+    const { cwd, error } = await this.agentCwd(plan.agentName, plan.worktreePath);
     const commit = branchCommit();
     const problems: string[] = [];
-    if (!sameDir(cwd, plan.worktreePath)) problems.push(`cwd do agente ${cwd ?? "desconhecido"} não é o worktree ${plan.worktreePath}`);
+    if (!sameDir(cwd, plan.worktreePath)) problems.push(`cwd do agente ${cwd ?? "desconhecido"} não é o worktree ${plan.worktreePath}${error === null ? "" : ` (${error})`}`);
     if (commit === null) problems.push(`branch ${plan.branch} não existe`);
     else if (commit !== plan.baseCommit) problems.push(`branch ${plan.branch} aponta para ${commit}, não para o commit base ${plan.baseCommit}`);
     if (problems.length > 0) return failed(`pós-condição do lançamento no Claude Code: ${problems.join("; ")}`);
@@ -326,14 +333,22 @@ export class HerdrBackend implements Backend {
   }
 
   // The agent's foreground cwd, read a few times while Claude Code moves into
-  // the worktree.
-  private async agentCwd(name: string, expected: string): Promise<string | null> {
+  // the worktree, with the herdr error of the last read, if it failed, so
+  // the failure names the command and the error (Spec 2.3, H13).
+  private async agentCwd(name: string, expected: string): Promise<{ cwd: string | null; error: string | null }> {
     const deadline = Date.now() + (this.options.postconditionWaitMs ?? 3_000);
-    let cwd: string | null = null;
     for (;;) {
-      const got = this.herdr.run(["agent", "get", name]);
-      cwd = got.ok ? text(got.result, "agent", "foreground_cwd") : null;
-      if (sameDir(cwd, expected) || Date.now() >= deadline) return cwd;
+      let cwd: string | null = null;
+      let error: string | null = null;
+      try {
+        const got = this.herdr.run(["agent", "get", name]);
+        if (got.ok) cwd = text(got.result, "agent", "foreground_cwd");
+        else error = `herdr agent get: ${got.code}: ${got.message}`;
+      } catch (e) {
+        if (!(e instanceof BackendError)) throw e;
+        error = `${e.command}: ${e.detail}`;
+      }
+      if (sameDir(cwd, expected) || Date.now() >= deadline) return { cwd, error };
       await Bun.sleep(200);
     }
   }
