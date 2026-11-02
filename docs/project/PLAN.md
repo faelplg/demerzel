@@ -25,6 +25,7 @@ a criação do worktree do Claude Code e tirou a confiança do Demerzel.
 - 1, prova de lançamento ([faelplg/demerzel#6](https://github.com/faelplg/demerzel/pull/6), [faelplg/demerzel#7](https://github.com/faelplg/demerzel/pull/7)): passou com um modo de worktree por harness. Codex com `herdr worktree create`, 0 de 5 intervenções; Claude Code com `--worktree` e hook `WorktreeCreate`, 0 de 5. Com o worktree do herdr, o Claude Code pedia confiança em 5 de 5, e isso levou à Spec 0.4.
 - 2, stack ([faelplg/demerzel#8](https://github.com/faelplg/demerzel/pull/8)): Bun 1.4.2, TypeScript 7.0.2 estrito, `bun run check` e o entrypoint que só responde `--version`.
 - 3, núcleo ([faelplg/demerzel#9](https://github.com/faelplg/demerzel/pull/9), [faelplg/demerzel#10](https://github.com/faelplg/demerzel/pull/10), [faelplg/demerzel#11](https://github.com/faelplg/demerzel/pull/11), [faelplg/demerzel#12](https://github.com/faelplg/demerzel/pull/12)): TC-0001 em DONE, com 142 testes do núcleo e quatro verificações independentes, três no Codex e a última, com PASS, no Antigravity.
+- 4, backend herdr e smoke ([faelplg/demerzel#13](https://github.com/faelplg/demerzel/pull/13), [faelplg/demerzel#14](https://github.com/faelplg/demerzel/pull/14), [faelplg/demerzel#15](https://github.com/faelplg/demerzel/pull/15), [faelplg/demerzel#16](https://github.com/faelplg/demerzel/pull/16)): TC-0002 em DONE, com o backend herdr, `resume`, `status`, `wait`, `collect` e `close` no CLI, o cenário contra o herdr real em 16/16 e o smoke com 0 de 5 intervenções no Claude Code e no Codex. Treze verificações independentes, doze no Codex com FAIL e a última, com PASS, no Antigravity; uma emenda do owner ao contrato mudou o `close` do núcleo.
 
 ## Próximos
 
@@ -34,18 +35,15 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-4. **Backend herdr e smoke.** Contrato [TC-0002](contracts/TC-0002-herdr-backend.md).
-   Implementação herdr da interface,
-   sessão pela configuração, tabela de lançamento de Claude Code e Codex,
-   `resume` para startup bloqueado. A entrada é uma tarefa já resolvida,
-   escrita à mão num arquivo de fixture interno aos testes, sem Radiant.
-   Os dois modos de worktree da Spec 0.4, seção 2.5, com a pós-condição do
-   Claude Code. Evidência: verificações 7 e 8, e o critério do incremento 1
-   agora pelo Demerzel: cinco `dispatch` por harness num projeto confiado,
-   contando como intervenção qualquer ação humana na aba antes do pedido
-   chegar, exceto a autenticação inicial. O contrato reserva o descarte real
-   ao owner e lista os recursos que sobram se o incremento parar.
-5. **Integração Radiant.** Contrato. `src/radiant/` com projeto, gate de pin,
+5. **Integração Radiant.** Contrato. Antes do `dispatch` entrar no CLI, uma
+   revisão da Spec resolve o achado P1 do review do PR #16: hoje a
+   recuperação da seção 2.3 leva a `launched` uma tarefa do Claude Code cuja
+   pós-condição de lançamento não foi conferida, e o `resume` envia o pedido
+   sem conferir o worktree, contra a seção 2.5. A direção proposta é o
+   `resume` conferir cwd, branch e commit base antes de enviar; o contrato
+   inclui a correção, com teste e quebra proposital, e o detalhe fica no
+   [relatório do TC-0002](verification/2026-10-31-tc-0002-herdr.md).
+   `src/radiant/` com projeto, gate de pin,
    base, contrato do commit base, `check_dispatch.py`, roteamento e recusas da
    integração. Evidência: verificação 6, a parte da integração das
    verificações 3 e 4 (cada recusa da integração, inclusive

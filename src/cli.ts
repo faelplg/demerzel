@@ -1,21 +1,18 @@
 #!/usr/bin/env bun
 import pkg from "../package.json" with { type: "json" };
+import { runCommand, type CliOutcome } from "./cli/run.ts";
 
-export type Outcome = { code: 0 | 1 | 2; stdout: string; stderr: string };
+export type Outcome = CliOutcome;
 
-const usage =
-  "Nesta versão só existe `demerzel --version`; os comandos de despacho entram nos próximos incrementos do Plan.";
-
-export function main(argv: readonly string[]): Outcome {
+export async function main(argv: readonly string[], env: Record<string, string | undefined>, cwd: string): Promise<Outcome> {
   if (argv.length === 1 && argv[0] === "--version") {
     return { code: 0, stdout: `${pkg.version}\n`, stderr: "" };
   }
-  const given = argv.length === 0 ? "nenhum argumento" : `\`${argv.join(" ")}\``;
-  return { code: 2, stdout: "", stderr: `demerzel: ${given} não é suportado. ${usage}\n` };
+  return runCommand(argv, env, cwd);
 }
 
 if (import.meta.main) {
-  const outcome = main(Bun.argv.slice(2));
+  const outcome = await main(Bun.argv.slice(2), { ...process.env }, process.cwd());
   process.stdout.write(outcome.stdout);
   process.stderr.write(outcome.stderr);
   process.exitCode = outcome.code;

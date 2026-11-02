@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { git } from "../git.ts";
 import { entry, type Registry } from "../registry.ts";
 import type { TaskRecord } from "../types.ts";
-import { agentState, done, isLock, isOutcome, isProbe, lock, notFound, open, planRecovery, reachBackend, refuse, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import { agentState, backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, transition, view, viewAfterEffect, workspaceLabel, wrongLifecycle, type Context, type Outcome } from "./common.ts";
 
 const C = "close";
 
@@ -61,7 +61,8 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
 
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
-    const snapshot = await ctx.backend.snapshot();
+    const snapshot = await readSnapshot(C, ctx.backend);
+    if (!isSnapshot(snapshot)) return snapshot;
     const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
     const record = recovery.records.find((r) => r.id === input.id);
     if (record === undefined) return notFound(C, input.id);
@@ -74,9 +75,32 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
       return refuse(C, "task-working", `o agente da tarefa ${input.id} está trabalhando, mesmo que o retorno já exista`, "Espere o agente parar; fechar mataria trabalho em curso.");
     }
     recovery.publish();
+    // TC-0002, Emenda 1: a launch whose creation answer and reconciliation
+    // snapshot both failed leaves no workspace ID. The workspace is then
+    // looked up by its unique label, as the recovery of Spec 2.3 does, and
+    // the ID found is recorded before the close.
+    if (record.backend_ids.workspace === null) {
+      const found = snapshot.workspaces.find((w) => w.label === workspaceLabel(record));
+      if (found !== undefined) {
+        record.backend_ids.workspace = found.id;
+        record.history.push(entry("workspace-found", { workspace: found.id, by: "label" }));
+        registry.write(record);
+        ctx.trace?.("wrote:workspace-found");
+      }
+    }
     const workspace = record.backend_ids.workspace;
     if (workspace !== null && snapshot.workspaces.some((w) => w.id === workspace)) {
-      await ctx.backend.closeWorkspace(workspace);
+      try {
+        await ctx.backend.closeWorkspace(workspace);
+      } catch (error) {
+        // The close was the first effect and failed: the task keeps its
+        // lifecycle, the failure goes to the history, and the exit is 1.
+        const failure = backendErrorDetail(error);
+        record.history.push(entry("close-failed", { workspace, backend_error: failure }));
+        registry.write(record);
+        ctx.trace?.("wrote:close-failed");
+        return done(C, 1, [viewAfterEffect(record, { snapshot: null, error: null }, failure)]);
+      }
     }
     // The human decision goes in with `closed`, so no write ever shows the
     // task closed for discard without the flag.

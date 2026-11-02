@@ -6,8 +6,8 @@ Codex em `gpt-6.1-sol`, papel `radiant-grill`: onze objeções, todas aceitas
 pelo owner e aplicadas aqui e na Spec 0.9, antes de qualquer execução
 **Project:** `demerzel`
 **Iteration:** Plan 0.3, incremento 4
-**Status:** `READY`
-**Lifecycle:** `active` desde 2026-10-31, por decisão do owner; o `ACTIVE.md` aponta para ele
+**Status:** `DONE`
+**Lifecycle:** `done` em 2026-11-01, fechado no PR do Build, [faelplg/demerzel#16](https://github.com/faelplg/demerzel/pull/16), depois da décima terceira verificação independente com PASS; evidência em `docs/project/verification/2026-10-31-tc-0002-herdr.md`
 **Owner:** Fael (humano); Build por um agente no papel `radiant-dev`;
 orquestrador responsável pelo smoke com harness real e pela crítica
 independente
@@ -490,3 +490,24 @@ dele sustenta; o `DONE` do contrato espera o smoke e a crítica independente.
 > **Não declarar DONE porque o código parece correto. Declarar DONE apenas
 > quando os critérios observáveis, a engenharia aplicável e a evidência de
 > verificação convergirem.**
+
+## Emenda 1
+
+Aprovada pelo owner em 2026-10-31, sobre o achado Q1 da quarta verificação
+independente
+([relatório](../verification/2026-10-31-tc-0002-herdr.md#quarta-verificação-independente)).
+
+Quando a resposta da criação e o snapshot de reconciliação falham juntos, o
+registro fica sem `backend_ids.workspace` e o `close` saía com 0 deixando o
+workspace aberto. O escopo do núcleo nos outputs, nos paths permitidos, nos
+non-goals, nos critérios e no change budget fica ampliado só para isto:
+
+- `src/core/commands/close.ts`: quando o registro não tem o ID do workspace,
+  o `close` procura no snapshot o workspace pelo label exclusivo,
+  `workspaceLabel(record)`, como a recuperação da Spec 2.3 já faz, grava o ID
+  achado no registro, com a entrada `workspace-found` no histórico, e só
+  então fecha;
+- um teste novo em `test/core/` com o backend falso e um teste integrado em
+  `test/herdr/backend.test.ts` com o herdr falso.
+
+Nenhuma outra mudança no núcleo fora do output 6 fica autorizada.

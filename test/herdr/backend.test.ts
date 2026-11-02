@@ -1,0 +1,921 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { close, dispatch, status } from "../../src/core/index.ts";
+import { BackendError, type LaunchPlan } from "../../src/core/backend.ts";
+import type { Created } from "../../src/core/types.ts";
+import { git } from "../../src/core/git.ts";
+import { resolveProject } from "../../src/core/project.ts";
+import { HerdrBackend, hookSettings, shQuote, versionAtLeast } from "../../src/herdr/backend.ts";
+import { parseHerdrConfig } from "../../src/herdr/config.ts";
+import { sandbox, task, type Sandbox } from "../core/helpers/sandbox.ts";
+import { installFakeHerdr, type FakeHerdr } from "./helpers/fake.ts";
+
+let sb: Sandbox;
+let fake: FakeHerdr;
+beforeEach(() => {
+  sb = sandbox();
+  fake = installFakeHerdr(sb.root, sb.env);
+});
+afterEach(() => sb.cleanup());
+
+const herdr = (session: string | null = "dz-test", options = {}) => new HerdrBackend(fake.env, { session }, { postconditionWaitMs: 200, ...options });
+const ctx = (backend: HerdrBackend) => ({ cwd: sb.repo, env: fake.env, backend, lockIntervalMs: 10, waitIntervalMs: 5 });
+
+function plan(overrides: Partial<LaunchPlan> = {}): LaunchPlan {
+  const base = git(sb.repo, ["rev-parse", "main"], sb.env).stdout;
+  return {
+    taskId: "TC-0099.1",
+    agentName: "dz-0123456789abcdef",
+    label: "TC-0099.1 dz-0123456789abcdef",
+    harness: "codex",
+    model: "gpt-6.1-sol",
+    effort: "medium",
+    branch: "radiant/TC-0099.1",
+    baseCommit: base,
+    worktreePath: join(sb.root, "wt", "TC-0099.1"),
+    mainCheckout: sb.repo,
+    ...overrides,
+  };
+}
+
+async function launch(backend: HerdrBackend, p: LaunchPlan) {
+  const created: Created[] = [];
+  const outcome = await backend.launch(p, backend.prepare(p), (r) => created.push(r));
+  return { outcome, created, kinds: created.map((c) => c.kind) };
+}
+
+const PERMISSION = /dangerously|permission-mode|bypass|--yolo|full-auto|danger-full-access|ask-for-approval|trust-repository|--sandbox/;
+
+describe("configuration and session (H1)", () => {
+  // Protects: Spec 2.4. Fails if a bad session name or unknown key passes.
+  test("the herdr block", () => {
+    expect(parseHerdrConfig(null)).toEqual({ ok: true, config: { session: null } });
+    expect(parseHerdrConfig({ session: "lab" })).toEqual({ ok: true, config: { session: "lab" } });
+    expect(parseHerdrConfig({ session: "-bad" }).ok).toBe(false);
+    expect(parseHerdrConfig({ session: "lab", other: 1 }).ok).toBe(false);
+  });
+
+  // Protects: every herdr call carries --session when configured, and none
+  // does when it is not. Fails if any call drops or adds it.
+  test("--session on every call", async () => {
+    const be = herdr("dz-test");
+    await be.probe();
+    await be.snapshot();
+    await launch(be, plan());
+    await be.send("dz-0123456789abcdef", "pedido");
+    await be.closeWorkspace("w1");
+    const calls = fake.calls();
+    expect(calls.length).toBeGreaterThan(5);
+    for (const call of calls) expect(call.slice(0, 2)).toEqual(["--session", "dz-test"]);
+
+    const plain = installFakeHerdr(join(sb.root, "plain"), sb.env);
+    await new HerdrBackend(plain.env, { session: null }).probe();
+    for (const call of plain.calls()) expect(call).not.toContain("--session");
+  });
+});
+
+describe("probe (H2)", () => {
+  // Protects: a usable herdr, a stopped one, an old one and a missing one
+  // all end as a Probe, never as a loose exception. Fails if any throws.
+  test("running, stopped, old and missing", async () => {
+    expect(await herdr().probe()).toMatchObject({ running: true, compatible: true, versionOk: true, version: "0.9.0", detail: null });
+    fake.script({ version: "0.8.9" });
+    expect(await herdr().probe()).toMatchObject({ running: true, versionOk: false });
+    fake.script({ running: false });
+    const stopped = await herdr().probe();
+    expect(stopped.running).toBe(false);
+    expect(stopped.detail).toContain("parado");
+    const empty = join(sb.root, "empty-bin");
+    mkdirSync(empty);
+    const missing = await new HerdrBackend({ ...fake.env, PATH: empty }, { session: null }).probe();
+    expect(missing.running).toBe(false);
+    expect(missing.detail).toContain("herdr");
+  });
+
+  // Protects: finding V2 of the fifth verification, a status run that exits
+  // non-zero is a backend that is not usable, even when it prints a usable
+  // answer. Fails if the probe reads the answer and ignores the exit code.
+  test("a status run that exits non-zero", async () => {
+    fake.script({ statusExit: 1 });
+    const probe = await herdr().probe();
+    expect(probe.running).toBe(false);
+    expect(probe.detail).toContain("herdr status --json saiu com 1");
+  });
+
+  // Protects: V2 end to end, dispatch and close refuse with
+  // backend-unavailable and no effect. Fails if a non-zero status lets
+  // either one create, close or write.
+  test("dispatch and close refuse a status run that exits non-zero", async () => {
+    const first = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(first.code).toBe(0);
+    fake.setAgentStatus(first.envelope.tasks[0]?.agent_name ?? "", "idle");
+    fake.script({ statusExit: 1 });
+    const before = sb.tasksSnapshot();
+    const workspaces = fake.state().workspaces.length;
+
+    const second = await dispatch({ task: task({ id: "TC-0099.2" }), humanApproved: false }, ctx(herdr(null)));
+    expect(second.code).toBe(2);
+    expect(second.envelope.refusal?.code).toBe("backend-unavailable");
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(workspaces);
+  });
+
+  // Protects: finding R3 of the seventh verification, a status answer that
+  // is not JSON is a backend that is not usable. Fails if the probe reads it
+  // as running.
+  test("a status answer that is not JSON", async () => {
+    fake.script({ statusAnswer: "garbage" });
+    const probe = await herdr().probe();
+    expect(probe.running).toBe(false);
+    expect(probe.detail).toContain("não devolveu JSON");
+  });
+
+  test("version comparison", () => {
+    expect(versionAtLeast("0.9.0", "0.9.0")).toBe(true);
+    expect(versionAtLeast("0.10.1", "0.9.0")).toBe(true);
+    expect(versionAtLeast("1.0.0-rc1", "0.9.0")).toBe(true);
+    expect(versionAtLeast("0.9.1+build.7", "0.9.0")).toBe(true);
+    expect(versionAtLeast("1.0.0-rc.1+exp.sha.5114f85", "0.9.0")).toBe(true);
+    expect(versionAtLeast("0.8.12", "0.9.0")).toBe(false);
+  });
+
+  // Protects: finding M2 of the twelfth verification, only a whole version
+  // reaches the minimum, and a prerelease of the minimum does not. Fails if
+  // a partly parsed version passes, or dispatch creates anything with it.
+  test("malformed and prerelease versions", async () => {
+    // The last three break semver 2.0.0: empty identifiers, and a numeric
+    // prerelease identifier with a leading zero.
+    for (const version of ["1.nope.0", "0.9junk.0", "0.9", "v0.9.0", "0.9.0-rc1", "", "0.9.1-..", "1.0.0+..", "1.0.0-01"]) {
+      expect(versionAtLeast(version, "0.9.0"), version).toBe(false);
+    }
+    fake.script({ version: "0.9junk.0" });
+    const probe = await herdr().probe();
+    expect(probe.versionOk).toBe(false);
+    expect(probe.detail).toContain("0.9junk.0");
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(2);
+    expect(d.envelope.refusal?.code).toBe("backend-version");
+    expect(sb.tasksSnapshot()).toEqual({});
+    expect(fake.state().workspaces).toEqual([]);
+  });
+});
+
+describe("snapshot (H3)", () => {
+  // Protects: only named agents, unknown statuses as unknown, each workspace
+  // with its root tab and pane. Fails if the mapping drops or invents data.
+  test("mapping", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ extraAgents: [{ agent_status: "idle", pane_id: "w9:p1" }, { name: "dz-weird", agent_status: "thinking", pane_id: "w9:p2" }] });
+    const snap = await be.snapshot();
+    expect(snap.agents).toEqual([
+      { name: "dz-0123456789abcdef", status: "idle", pane: "w1:p1" },
+      { name: "dz-weird", status: "unknown", pane: "w9:p2" },
+    ]);
+    expect(snap.workspaces).toEqual([{ id: "w1", label: "TC-0099.1 dz-0123456789abcdef", tab: "w1:t1", pane: "w1:p1" }]);
+  });
+
+  // Protects: an answer that is not a snapshot is a BackendError with the
+  // command. Fails if it becomes an empty snapshot.
+  test("garbage and missing lists", async () => {
+    fake.script({ snapshot: "garbage" });
+    await expect(herdr().snapshot()).rejects.toBeInstanceOf(BackendError);
+    fake.script({ snapshot: "no-lists" });
+    await expect(herdr().snapshot()).rejects.toThrow("herdr api snapshot");
+  });
+
+  // Protects: finding S3 of the sixth verification, the root tab is the one
+  // with the lowest number, whatever the list order. Fails if the first tab
+  // of the list is taken.
+  test("the root tab is chosen by number", async () => {
+    fake.script({ start: { codex: "error", claude: "error" } });
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "extra-tab-first" });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w1", label: "TC-0099.1 dz-0123456789abcdef", tab: "w1:t1", pane: "w1:p1" }]);
+  });
+
+  // Protects: finding S1 of the sixth verification, the pane of a workspace
+  // is the pane of the agent named in its label (Spec 2.5) when that agent
+  // is in the workspace, so a split pane listed first never makes the agent
+  // look lost. Fails if the first pane of the list is taken.
+  test("the agent's pane wins over a split pane listed first", async () => {
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "extra-pane-first" });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w1", label: "TC-0099.1 dz-0123456789abcdef", tab: "w1:t1", pane: "w1:p1" }]);
+  });
+
+  // Protects: S1 end to end, close refuses a working agent whose workspace
+  // has a split pane listed first. Fails if close exits 0 and closes it.
+  test("close refuses a working agent beside a split pane", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    fake.script({ snapshot: "extra-pane-first" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("task-working");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  // Protects: finding R1 of the seventh verification, a workspace whose
+  // label a human changed still shows the named agent that lives in it, even
+  // beside a split pane listed first. Fails if the first pane of the list is
+  // taken once the label no longer names the agent.
+  test("a renamed workspace keeps its agent's pane", async () => {
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "renamed-split" });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w1", label: "nome dado pelo humano", tab: "w1:t1", pane: "w1:p1" }]);
+  });
+
+  // Protects: R1 end to end. Fails if close exits 0 and closes a working
+  // agent whose workspace was renamed and split.
+  test("close refuses a working agent in a renamed and split workspace", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    fake.script({ snapshot: "renamed-split" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("task-working");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  // Protects: finding E1 of the eighth verification, a renamed workspace
+  // where another owner's agent sits in a lower tab still shows the
+  // Demerzel agent's pane, the only kind of agent the core asks about.
+  // Fails if the first named agent by tab is taken.
+  test("a renamed workspace with another agent in a lower tab", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    fake.script({ snapshot: "renamed-lower-tab", extraAgents: [{ name: "outro-dono", agent_status: "idle", pane_id: "w1:p0" }] });
+    expect((await herdr().snapshot()).workspaces).toEqual([{ id: "w1", label: "nome dado pelo humano", tab: "w1:t1", pane: "w1:p1" }]);
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("task-working");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  // Protects: E1, a workspace with Demerzel agents in two panes cannot be
+  // shown with one pane, so the snapshot is refused rather than hiding one.
+  // Fails if one of them is dropped, or if agents of other owners in the
+  // same workspace make the snapshot fail.
+  test("two Demerzel agents in one workspace", async () => {
+    await launch(herdr(), plan());
+    fake.script({ snapshot: "extra-pane-first", extraAgents: [{ name: "dz-ffffffffffffffff", agent_status: "idle", pane_id: "w1:p2" }] });
+    const error = await herdr().snapshot().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BackendError);
+    expect(String((error as Error).message)).toContain("herdr api snapshot");
+    fake.script({ extraAgents: [{ name: "outro-dono", agent_status: "working", pane_id: "w1:p2" }] });
+    expect((await herdr().snapshot()).workspaces[0]?.pane).toBe("w1:p1");
+  });
+
+  // Protects: finding J1 of the ninth verification, a snapshot whose
+  // relations are missing, repeated or contradictory is broken, never a
+  // smaller snapshot. Fails if any of them maps to a workspace or an agent.
+  test("a snapshot with missing, repeated or contradictory relations", async () => {
+    await launch(herdr(), plan());
+    expect((await herdr().snapshot()).workspaces[0]?.pane).toBe("w1:p1");
+    const relations = ["pane-without-workspace", "pane-without-tab", "tab-without-id", "tab-of-missing-workspace", "pane-in-other-workspace", "duplicate-pane", "duplicate-tab", "duplicate-workspace", "duplicate-agent", "agent-tab-mismatch", "agent-workspace-mismatch", "workspace-without-label", "tab-without-number"] as const;
+    for (const relation of relations) {
+      fake.script({ relation });
+      const error = await herdr().snapshot().catch((e: unknown) => e);
+      expect(error, relation).toBeInstanceOf(BackendError);
+      expect(String((error as Error).message), relation).toContain("herdr api snapshot");
+    }
+    // The same faults on a split pane with no agent, listed first, which
+    // only the pane checks can catch.
+    for (const relation of ["pane-without-workspace", "pane-without-tab", "pane-in-other-workspace", "duplicate-pane"] as const) {
+      fake.script({ snapshot: "extra-pane-first", relation });
+      const error = await herdr().snapshot().catch((e: unknown) => e);
+      expect(error, `${relation} on a split pane`).toBeInstanceOf(BackendError);
+    }
+  });
+
+  // Protects: J1 end to end, close refuses a working agent when its pane
+  // loses its workspace or a second entry with its name says idle. Fails if
+  // close exits 0 and closes the workspace.
+  for (const relation of ["pane-without-workspace", "duplicate-agent"] as const) {
+    test(`close refuses a working agent behind a broken snapshot, ${relation}`, async () => {
+      const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+      expect(d.code).toBe(0);
+      fake.script({ relation });
+      const before = sb.tasksSnapshot();
+      const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+      expect(c.code).toBe(2);
+      expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+      expect(sb.tasksSnapshot()).toEqual(before);
+      expect(fake.state().workspaces).toHaveLength(1);
+    });
+  }
+
+  // Protects: finding V1 of the fifth verification, a named agent without
+  // its pane or state, or a workspace without its ID, is a broken snapshot,
+  // not an absent agent or workspace. Fails if the entry is dropped or
+  // filled in.
+  test("a named agent or a workspace missing a required field", async () => {
+    await launch(herdr(), plan());
+    for (const mode of ["agent-without-pane", "agent-without-status", "workspace-without-id"] as const) {
+      fake.script({ snapshot: mode });
+      const error = await herdr().snapshot().catch((e: unknown) => e);
+      expect(error, mode).toBeInstanceOf(BackendError);
+      expect(String((error as Error).message), mode).toContain("herdr api snapshot");
+    }
+  });
+
+  // Protects: V1 end to end, close never ends a working agent because the
+  // snapshot lost its pane. Fails if close exits 0 and closes the workspace.
+  test("close refuses when the working agent comes without its pane", async () => {
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    expect(fake.state().agents[0]?.status).toBe("working");
+    fake.script({ snapshot: "agent-without-pane" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+    expect(fake.state().agents).toHaveLength(1);
+  });
+});
+
+describe("prepare (H4)", () => {
+  // Protects: Spec 2.5, revision 0.9: only checked effort levels pass. Fails
+  // if an unchecked level reaches the CLI or a checked one is dropped.
+  // Protects: every checked level of both harnesses reaches the CLI with its
+  // flag (finding Q4). Fails if a checked level is dropped from the table.
+  test.each([
+    ...["low", "medium", "high", "xhigh", "max"].map((e) => ["claude-code", e, ["--effort", e]] as const),
+    ...["minimal", "low", "medium", "high", "xhigh"].map((e) => ["codex", e, ["-c", `model_reasoning_effort=${e}`]] as const),
+  ])("%s %s is applied", async (harness, effort, flags) => {
+    const be = herdr();
+    const p = plan({ harness, effort, agentName: "dz-h000000000000001", branch: `radiant/e-${harness}-${effort}`, worktreePath: join(sb.root, "wt", `e-${harness}-${effort}`) });
+    expect(be.prepare(p).effort).toEqual({ applied: effort, omittedReason: null });
+    await launch(be, p);
+    const start = fake.calls().find((c) => c[2] === "agent" && c[3] === "start") ?? [];
+    expect(start.slice(-flags.length)).toEqual([...flags]);
+  });
+
+  // Protects: names inherited by every object are not harnesses (finding
+  // Q3). Fails if constructor, toString or __proto__ pass as supported.
+  test.each(["constructor", "toString", "__proto__"])("%s is not a harness", (name) => {
+    const be = herdr();
+    expect(be.supportsHarness(name)).toBe(false);
+    expect(be.prepare(plan({ harness: name, effort: "low" })).effort.applied).toBeNull();
+  });
+
+  test("effort levels", () => {
+    const be = herdr();
+    expect(be.prepare(plan({ effort: "xhigh" })).effort).toEqual({ applied: "xhigh", omittedReason: null });
+    expect(be.prepare(plan({ effort: "max" })).effort.applied).toBeNull();
+    expect(be.prepare(plan({ harness: "claude-code", effort: "max" })).effort.applied).toBe("max");
+    expect(be.prepare(plan({ harness: "claude-code", effort: "minimal" })).effort.omittedReason).toContain("não conferido");
+    expect(be.prepare(plan({ effort: null })).effort).toEqual({ applied: null, omittedReason: null });
+  });
+
+  // Protects: the hook quoting survives a real shell with quotes, spaces and
+  // `$` in the paths. Fails if any argument is split or expanded.
+  test("hook quoting through /bin/sh", async () => {
+    expect(shQuote("it's $HOME")).toBe(`'it'\\''s $HOME'`);
+    const odd = join(sb.root, "wt", "it's a $HOME `x`");
+    const be = herdr();
+    const p = plan({ harness: "claude-code", effort: "low", worktreePath: odd });
+    const settings = JSON.parse(hookSettings(p));
+    expect(settings.hooks.WorktreeCreate[0].hooks[0].type).toBe("command");
+    const { outcome } = await launch(be, p);
+    expect(outcome.kind).toBe("ready");
+    expect(existsSync(odd)).toBe(true);
+    expect(git(sb.repo, ["rev-parse", p.branch], sb.env).stdout).toBe(p.baseCommit);
+  });
+});
+
+describe("launch (H5, H6, H7)", () => {
+  // Protects: the Codex arguments of Spec 2.5 and the order of resources.
+  // Fails if a flag changes or a resource is reported late.
+  test("codex", async () => {
+    const be = herdr(null);
+    const p = plan();
+    const { outcome, kinds } = await launch(be, p);
+    expect(outcome).toEqual({ kind: "ready", ids: { workspace: "w1", tab: "w1:t1", pane: "w1:p1" } });
+    expect(kinds).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    const [create, start] = fake.calls();
+    expect(create).toEqual(["worktree", "create", "--cwd", sb.repo, "--branch", p.branch, "--base", p.baseCommit, "--path", p.worktreePath, "--label", p.label, "--no-focus"]);
+    expect(start).toEqual(["agent", "start", p.agentName, "--kind", "codex", "--pane", "w1:p1", "--timeout", "90000", "--", "--model", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"]);
+  });
+
+  // Protects: the Claude Code arguments and the hook-created worktree.
+  // Fails if the worktree flags, settings or order change.
+  test("claude-code", async () => {
+    const be = herdr(null);
+    const p = plan({ harness: "claude-code", model: "claude-sonnet-5-5", effort: "low" });
+    const { outcome, kinds } = await launch(be, p);
+    expect(outcome.kind).toBe("ready");
+    expect(kinds).toEqual(["workspace", "tab", "pane", "worktree", "agent"]);
+    const [create, start] = fake.calls();
+    expect(create).toEqual(["workspace", "create", "--cwd", sb.repo, "--label", p.label, "--no-focus"]);
+    expect(start).toEqual(["agent", "start", p.agentName, "--kind", "claude", "--pane", "w1:p1", "--timeout", "90000", "--", "--worktree", p.agentName, "--settings", hookSettings(p), "--model", "claude-sonnet-5-5", "--effort", "low"]);
+  });
+
+  // Protects: the postcondition fails on the cwd, on a missing branch and
+  // on a branch at another commit. Fails if any of them launches.
+  test("claude-code postcondition failures", async () => {
+    fake.script({ hook: "wrong-path" });
+    const cwd = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-a000000000000001", branch: "radiant/a", worktreePath: join(sb.root, "wt", "a") }));
+    expect(cwd.outcome.kind).toBe("failed");
+    expect(cwd.outcome.kind === "failed" && cwd.outcome.reason).toContain("cwd do agente");
+
+    fake.script({ hook: "skip", cwd: "root" });
+    const missing = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-a000000000000002", branch: "radiant/b", worktreePath: join(sb.root, "wt", "b") }));
+    expect(missing.outcome.kind === "failed" && missing.outcome.reason).toContain("não existe");
+    expect(missing.kinds).not.toContain("worktree");
+
+    fake.script({ hook: "run", cwd: "worktree" });
+    const be = herdr();
+    const p = plan({ harness: "claude-code", agentName: "dz-a000000000000003", branch: "radiant/c", worktreePath: join(sb.root, "wt", "c") });
+    // The hook builds from p.baseCommit; the postcondition expects another.
+    const other = sb.commit("outro.txt", "x\n", "outro commit");
+    const created: Created[] = [];
+    const outcome = await be.launch({ ...p, baseCommit: other }, be.prepare(p), (r) => created.push(r));
+    expect(outcome.kind === "failed" && outcome.reason).toContain("não para o commit base");
+  });
+
+  // Protects: Spec 2.5, revision 0.9: a blocked Claude Code startup is
+  // blocked only when the postcondition holds. Fails if a blocked startup
+  // without a checked worktree can be resumed.
+  test("blocked startup", async () => {
+    fake.script({ start: { claude: "not_ready", codex: "not_ready" } });
+    const codex = await launch(herdr(), plan({ agentName: "dz-b000000000000001", branch: "radiant/d", worktreePath: join(sb.root, "wt", "d") }));
+    expect(codex.outcome.kind).toBe("blocked");
+    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+
+    const ok = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000002", branch: "radiant/e", worktreePath: join(sb.root, "wt", "e") }));
+    expect(ok.outcome.kind).toBe("blocked");
+
+    fake.script({ hook: "skip", cwd: "root" });
+    const unchecked = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000003", branch: "radiant/f", worktreePath: join(sb.root, "wt", "f") }));
+    expect(unchecked.outcome.kind).toBe("failed");
+    expect(unchecked.kinds).toEqual(["workspace", "tab", "pane", "agent"]);
+  });
+
+  // Protects: finding R3 of the seventh verification, on a blocked startup
+  // with the session in the right worktree, the branch is still checked:
+  // missing, or moved off the base commit, the launch fails. Fails if a
+  // blocked startup skips the Git check, which a wrong cwd used to hide.
+  test("blocked startup with the right cwd and a bad branch", async () => {
+    fake.script({ start: { claude: "not_ready", codex: "not_ready" }, hook: "then-drop-branch" });
+    const dropped = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000004", branch: "radiant/n", worktreePath: join(sb.root, "wt", "n") }));
+    expect(dropped.outcome.kind).toBe("failed");
+    expect(dropped.outcome.kind === "failed" ? dropped.outcome.reason : "").toContain("branch radiant/n não existe");
+    expect(dropped.outcome.kind === "failed" ? dropped.outcome.reason : "").not.toContain("cwd");
+
+    fake.script({ hook: "then-move-branch" });
+    const moved = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000005", branch: "radiant/o", worktreePath: join(sb.root, "wt", "o") }));
+    expect(moved.outcome.kind).toBe("failed");
+    expect(moved.outcome.kind === "failed" ? moved.outcome.reason : "").toContain("não para o commit base");
+    expect(moved.outcome.kind === "failed" ? moved.outcome.reason : "").not.toContain("cwd");
+  });
+
+  // Protects: finding R2 of the seventh verification, an error of
+  // `herdr agent get` during the Claude Code postcondition reaches the
+  // failure with the command and the herdr error. Fails if it turns into a
+  // bare unknown cwd.
+  test("an agent get error during the postcondition", async () => {
+    fake.script({ agentGet: "error" });
+    const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000006", branch: "radiant/p", worktreePath: join(sb.root, "wt", "p") }));
+    expect(r.outcome.kind).toBe("failed");
+    const reason = r.outcome.kind === "failed" ? r.outcome.reason : "";
+    expect(reason).toContain("herdr agent get: agent_not_found: consulta do agente falhou");
+  });
+
+  // Protects: findings E2 of the eighth verification and J2 and J3 of the
+  // ninth, an `agent get` answer that does not say where this agent is
+  // fails the postcondition with the command named, on a ready and on a
+  // blocked startup: an empty answer, no cwd, an empty cwd, or another
+  // agent's answer whose cwd is the worktree. Fails if any of them passes
+  // or becomes a bare unknown cwd.
+  const getCases = [
+    ["empty", "herdr agent get: resposta sem o nome deste agente"],
+    ["no-cwd", "herdr agent get: resposta sem agent.foreground_cwd"],
+    ["empty-cwd", "herdr agent get: resposta sem agent.foreground_cwd"],
+    ["other-agent", "herdr agent get: resposta sem o nome deste agente"],
+  ] as const;
+  for (const startup of ["ready", "not_ready"] as const) {
+    test(`agent get answers that do not place this agent, ${startup} startup`, async () => {
+      let n = 0;
+      for (const [mode, said] of getCases) {
+        n++;
+        // The agent itself stays at the project root; only the answer under
+        // test could place it in the worktree.
+        fake.script({ agentGet: mode, start: { claude: startup, codex: startup }, cwd: mode === "other-agent" ? "root" : "worktree" });
+        const id = `${startup === "ready" ? "a" : "b"}${n}`;
+        const r = await launch(herdr(), plan({ harness: "claude-code", agentName: `dz-c0000000000000${n}${startup === "ready" ? "a" : "b"}`, branch: `radiant/get-${id}`, worktreePath: join(sb.root, "wt", `get-${id}`) }));
+        expect(r.outcome.kind, mode).toBe("failed");
+        expect(r.outcome.kind === "failed" ? r.outcome.reason : "", mode).toContain(said);
+      }
+    });
+  }
+
+  // Protects: a pane whose shell is not ready yet is retried, in both modes,
+  // and a pane that stays busy ends in failed. Fails if the first
+  // agent_pane_busy ends the launch, as the smoke of 2026-10-31 showed.
+  test("agent start retried while the pane is busy", async () => {
+    fake.script({ paneBusy: 2 });
+    const codex = await launch(herdr(), plan());
+    expect(codex.outcome.kind).toBe("ready");
+    fake.script({ paneBusy: 2 });
+    const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-d000000000000001", branch: "radiant/h", worktreePath: join(sb.root, "wt", "h") }));
+    expect(claude.outcome.kind).toBe("ready");
+    const starts = fake.calls().filter((c) => c[2] === "agent" && c[3] === "start");
+    expect(starts).toHaveLength(6);
+    fake.script({ paneBusy: 100 });
+    const busy = await launch(herdr("dz-test", { paneReadyWaitMs: 300 }), plan({ agentName: "dz-d000000000000002", branch: "radiant/i", worktreePath: join(sb.root, "wt", "i") }));
+    expect(busy.outcome.kind === "failed" && busy.outcome.reason).toContain("agent_pane_busy");
+  });
+
+  test("agent start error", async () => {
+    fake.script({ start: { codex: "error" } });
+    const r = await launch(herdr(), plan());
+    expect(r.outcome.kind === "failed" && r.outcome.reason).toContain("herdr agent start: agent_start_failed");
+  });
+
+  // Protects: H6, a Claude Code agent start that fails after the hook ran
+  // still lists the worktree in created (finding F2). Fails if the worktree
+  // is checked only on the success path.
+  // Protects: H5 and H6, a success that does not name this agent, or a
+  // broken answer, is a failed launch that still lists what exists
+  // (findings N2 and N4). Fails if an unconfirmed agent is recorded or the
+  // hook's worktree is lost.
+  test("unconfirmed or broken agent start", async () => {
+    fake.script({ start: { codex: "ok-empty" } });
+    const empty = await launch(herdr(), plan());
+    expect(empty.outcome.kind === "failed" && empty.outcome.reason).toContain("confirmação sem o agente");
+    expect(empty.kinds).toEqual(["worktree", "workspace", "tab", "pane"]);
+
+    fake.script({ start: { claude: "garbage" } });
+    const broken = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-f000000000000001", branch: "radiant/k", worktreePath: join(sb.root, "wt", "k") }));
+    expect(broken.outcome.kind === "failed" && broken.outcome.reason).toContain("não é JSON");
+    expect(broken.kinds).toEqual(["workspace", "tab", "pane", "worktree"]);
+  });
+
+  test("claude-code agent start error after the hook", async () => {
+    fake.script({ start: { claude: "error" } });
+    const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-e000000000000001", branch: "radiant/j", worktreePath: join(sb.root, "wt", "j") }));
+    expect(r.outcome.kind).toBe("failed");
+    expect(r.kinds).toEqual(["workspace", "tab", "pane", "worktree"]);
+  });
+});
+
+describe("send and close (H8, H9)", () => {
+  // Protects: each prompt outcome maps to Spec 2.5. Fails if a stalled send
+  // is taken as sent or as not sent.
+  test("send outcomes", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    expect(await be.send("dz-0123456789abcdef", "linha 1\nlinha 2")).toBe("sent");
+    const prompt = fake.calls().find((c) => c[2] === "agent" && c[3] === "prompt") ?? [];
+    expect(prompt.slice(2)).toEqual(["agent", "prompt", "dz-0123456789abcdef", "linha 1\nlinha 2", "--wait", "--until", "working", "--until", "blocked", "--timeout", "30000"]);
+    fake.script({ prompt: "agent_not_ready" });
+    expect(await be.send("dz-0123456789abcdef", "x")).toBe("not-ready");
+    fake.script({ prompt: "agent_prompt_stalled" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("herdr agent prompt: agent_prompt_stalled");
+    fake.script({ prompt: "ok" });
+    fake.setAgentStatus("dz-0123456789abcdef", "blocked");
+    expect(await be.send("dz-0123456789abcdef", "x")).toBe("not-ready");
+    await expect(be.send("dz-ffffffffffffffff", "x")).rejects.toThrow("agent_not_found");
+  });
+
+  // Protects: H8, a success that is not a confirmation never counts as sent
+  // (finding F1 of the TC-0002 verification). Fails if a result without the
+  // agent's state, or a result with a non-zero exit, is taken as delivered.
+  test("an unexpected success is not a confirmation", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ prompt: "ok-no-status" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("confirmação sem o estado do agente");
+    fake.script({ prompt: "result-exit-1" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("unexpected_exit");
+    // Finding N1 of the second verification: a confirmation about another
+    // agent is not this agent's delivery.
+    fake.script({ prompt: "other-agent" });
+    await expect(be.send("dz-0123456789abcdef", "x")).rejects.toThrow("confirmação de outro agente");
+  });
+
+  // Protects: Spec 2.3 and 6, a structured herdr error that echoes the
+  // request never brings it into the diagnosis (finding N3). Fails if the
+  // error message is kept as it came.
+  test("a structured error that echoes the request is redacted", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ prompt: "error-echo" });
+    const request = "Demerzel: tarefa TC-0099.1.\nLeia os pointers abaixo e execute a tarefa no papel indicado.";
+    const error = await be.send("dz-0123456789abcdef", request).catch((e: unknown) => e);
+    expect(String((error as Error).message)).toContain("prompt_failed");
+    expect(String((error as Error).message)).not.toContain("Leia os pointers");
+    expect(String((error as Error).message)).not.toContain("Demerzel: tarefa");
+  });
+
+  // Protects: H13 and Spec 6, a broken answer never copies the request into
+  // the diagnosis (finding F4). Fails if the raw body is quoted.
+  test("a non-JSON answer does not quote the request", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ prompt: "echo-garbage" });
+    const error = await be.send("dz-0123456789abcdef", "PEDIDO-SECRETO-91c2").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BackendError);
+    expect(String((error as Error).message)).not.toContain("PEDIDO-SECRETO-91c2");
+  });
+
+  // Protects: H9, an empty success is not a close (finding Q2 of the fourth
+  // verification). Fails if the workspace stays open while close reports it
+  // closed.
+  test("an empty close answer is not a close", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    fake.script({ closeAnswer: "empty" });
+    await expect(be.closeWorkspace("w1")).rejects.toThrow("confirmação sem type ok");
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  test("close", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    await be.closeWorkspace("w1");
+    expect(fake.state().workspaces).toEqual([]);
+    await be.closeWorkspace("w1");
+    fake.script({ running: false });
+    await expect(be.closeWorkspace("w1")).rejects.toBeInstanceOf(BackendError);
+  });
+});
+
+describe("no permission flag reaches a harness or herdr (H10)", () => {
+  // Protects: Spec 2.5 and 6. Fails if any call carries a permission,
+  // bypass, sandbox or trust flag.
+  test("all calls of both modes", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    await launch(be, plan({ harness: "claude-code", agentName: "dz-c000000000000001", branch: "radiant/g", worktreePath: join(sb.root, "wt", "g") }));
+    await be.send("dz-0123456789abcdef", "x");
+    for (const call of fake.calls()) for (const arg of call) expect(arg).not.toMatch(PERMISSION);
+  });
+});
+
+describe("the core with the herdr backend (H13)", () => {
+  // Protects: a full dispatch through the herdr backend, and a snapshot that
+  // fails after the probe as a refusal with the herdr command. Fails if the
+  // exception escapes or the message loses the command.
+  test("dispatch and a broken snapshot", async () => {
+    const be = herdr(null);
+    const d = await dispatch({ task: task({ harness: "claude-code", model: "claude-sonnet-5-5", effort: "low" }), humanApproved: false }, ctx(be));
+    expect(d.code).toBe(0);
+    const t = d.envelope.tasks[0];
+    expect(t?.agent).toBe("working");
+    expect(t?.backend_ids.workspace).toBe("w1");
+    const record = JSON.parse(readFileSync(join(resolveProject(sb.repo, fake.env)?.dir ?? "", "tasks", "TC-0099.1.json"), "utf8"));
+    expect(record.preparation.settings).toBe(hookSettings({ ...plan({ harness: "claude-code" }), agentName: record.agent_name, label: `TC-0099.1 ${record.agent_name}`, branch: record.branch, worktreePath: record.worktree, baseCommit: record.base.commit, model: "claude-sonnet-5-5", effort: "low" }));
+    expect(fake.state().workspaces[0]?.label).toBe(`TC-0099.1 ${record.agent_name}`);
+
+    fake.script({ snapshot: "garbage" });
+    const s = await status({ ids: [], all: false }, ctx(herdr(null)));
+    expect(s.code).toBe(2);
+    expect(s.envelope.refusal?.message).toContain("herdr api snapshot");
+  });
+});
+
+describe("lost or broken confirmations (third verification of TC-0002)", () => {
+  // Protects: H5, H6 and H13, when a creation's answer is lost after the
+  // effect, the launch still lists what exists, found by label, agent name
+  // and Git (finding T2). Fails if the registry ends without the workspace
+  // and a later close cannot close it.
+  test("a creation that answers badly after creating", async () => {
+    fake.script({ createAnswer: "garbage-after" });
+    const codex = await launch(herdr(), plan());
+    expect(codex.outcome.kind).toBe("failed");
+    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane"]);
+    expect(codex.outcome.ids.workspace).toBe("w1");
+
+    const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-g000000000000001", label: "TC-0099.2 dz-g000000000000001", branch: "radiant/l", worktreePath: join(sb.root, "wt", "l") }));
+    expect(claude.kinds).toEqual(["workspace", "tab", "pane"]);
+    expect(claude.outcome.ids.workspace).toBe("w2");
+  });
+
+  // Protects: a close after such a launch closes the real workspace. Fails
+  // if the registry lacks the workspace and close reports 0 with it open.
+  test("close after a lost creation answer closes the workspace", async () => {
+    fake.script({ createAnswer: "garbage-after" });
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+    expect(d.envelope.tasks[0]?.backend_ids.workspace).not.toBeNull();
+    expect((await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)))).code).toBe(0);
+    expect(fake.state().workspaces).toEqual([]);
+  });
+
+  // Protects: finding S2 of the sixth verification, an empty workspace ID
+  // in the creation's confirmation is not a confirmation: the launch takes
+  // the failure path, finds the workspace by label, and a later close
+  // closes it, in both modes. Fails if the empty ID is recorded.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`an empty workspace ID in the creation answer, ${harness}`, async () => {
+      fake.script({ createAnswer: "empty-workspace-id" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids.workspace).toBe("w1");
+      fake.script({ createAnswer: "ok" });
+      const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+      expect(c.code).toBe(0);
+      expect(fake.state().workspaces).toEqual([]);
+    });
+  }
+
+  // Protects: finding K1 of the tenth verification, a snapshot without the
+  // label that the Emenda 1 lookup needs is refused, so close never records
+  // `closed` with the workspace open. Fails if a missing label reads as "".
+  test("close after a lost creation answer and a snapshot without labels", async () => {
+    fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.envelope.tasks[0]?.backend_ids.workspace).toBeNull();
+    fake.script({ relation: "workspace-without-label" });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+  });
+
+  // Protects: finding K2 of the tenth verification, a creation answer
+  // without the tab is not a confirmed launch; the launch fails, and the
+  // reconciliation lists every resource that exists, in both modes. Fails
+  // if the launch goes on with the tab missing from the registry.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`a creation answer without the tab, ${harness}`, async () => {
+      fake.script({ createAnswer: "no-tab" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
+      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(harness === "codex" ? ["worktree", "workspace", "pane", "tab"] : ["workspace", "pane", "tab"]);
+    });
+
+    // Protects: K2, the resources a partial answer confirmed stay listed
+    // even when the reconciliation snapshot fails too. Fails if a missing
+    // root pane drops the workspace and the tab the answer gave.
+    test(`a creation answer without the root pane and a lost reconciliation, ${harness}`, async () => {
+      fake.script({ createAnswer: "no-pane", snapshot: "fail-once-with-workspace" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: null });
+      fake.script({ createAnswer: "ok" });
+      expect((await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)))).code).toBe(0);
+      expect(fake.state().workspaces).toEqual([]);
+    });
+  }
+
+  // Protects: finding L1 of the eleventh verification, a creation answer
+  // whose workspace ID contradicts its tab and root pane is not recorded;
+  // the launch fails and the reconciliation finds the task's own workspace
+  // by label, so close never reaches another task's workspace. Fails if
+  // the contradictory ID is recorded, in either mode.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`a creation answer that names another workspace, ${harness}`, async () => {
+      const first = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+      expect(first.code).toBe(0);
+      expect(fake.state().agents[0]?.status).toBe("working");
+      fake.script({ createAnswer: "other-workspace-id" });
+      const second = await dispatch({ task: task({ id: "TC-0099.2", harness, branch: "radiant/TC-0099.2", writes: ["src/TC-0099.2/"] }), humanApproved: false }, ctx(herdr(null)));
+      expect(second.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(second.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w2", tab: "w2:t1", pane: "w2:p1" });
+      fake.script({ createAnswer: "ok" });
+      expect((await close({ id: "TC-0099.2", discardWorktree: false }, ctx(herdr(null)))).code).toBe(0);
+      expect(fake.state().workspaces.map((w) => w.id)).toEqual(["w1"]);
+      expect(fake.state().agents.map((a) => a.status)).toEqual(["working"]);
+    });
+
+    // Protects: L1 for the tab, a tab ID that contradicts the root pane's
+    // tab is not recorded; the reconciliation gives the real one. Fails if
+    // the answer's tab ID reaches the registry.
+    test(`a creation answer whose tab contradicts the root pane, ${harness}`, async () => {
+      fake.script({ createAnswer: "other-tab-id" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
+      expect(String(d.envelope.tasks[0]?.created.map((c) => JSON.stringify(c)))).not.toContain("w-outro");
+    });
+
+    // Protects: finding L2 of the eleventh verification, an answer without
+    // the workspace object still lists the tab and the root pane, and the
+    // workspace their relation names, even when the reconciliation fails.
+    // Fails if the tab and the pane are dropped with the workspace object.
+    test(`a creation answer without the workspace object and a lost reconciliation, ${harness}`, async () => {
+      fake.script({ createAnswer: "no-workspace-object", snapshot: "fail-once-with-workspace" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
+      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(harness === "codex" ? ["worktree", "workspace", "tab", "pane"] : ["workspace", "tab", "pane"]);
+    });
+  }
+
+  // Protects: finding M1 of the twelfth verification, two workspaces with
+  // one Demerzel task label make the label lookup ambiguous, so the
+  // snapshot is refused and close touches neither. Fails if the first one
+  // is taken. Workspaces of other owners may share a label.
+  test("close with two workspaces under the task's label", async () => {
+    fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
+    const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
+    expect(d.envelope.tasks[0]?.backend_ids.workspace).toBeNull();
+    const label = fake.state().workspaces[0]?.label ?? "";
+    fake.script({ extraWorkspaces: [{ workspace_id: "w-alheio", label }] });
+    const before = sb.tasksSnapshot();
+    const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+    expect(c.code).toBe(2);
+    expect(c.envelope.refusal?.code).toBe("backend-unavailable");
+    expect(sb.tasksSnapshot()).toEqual(before);
+    expect(fake.state().workspaces).toHaveLength(1);
+
+    fake.script({ extraWorkspaces: [{ workspace_id: "w-a", label: "demerzel" }, { workspace_id: "w-b", label: "demerzel" }] });
+    expect((await herdr().snapshot()).workspaces.map((w) => w.id)).toEqual(["w1", "w-a", "w-b"]);
+  });
+
+  // Protects: TC-0002 Emenda 1 (finding Q1), when the creation's answer and
+  // the reconciliation snapshot both fail, close still finds the workspace
+  // by its label and closes it, in both modes. Fails if close trusts only
+  // the recorded ID and exits 0 with the workspace open.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`close after a lost creation answer and a lost reconciliation, ${harness}`, async () => {
+      fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
+      const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
+      expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
+      expect(d.envelope.tasks[0]?.backend_ids.workspace).toBeNull();
+      expect(fake.state().workspaces).toHaveLength(1);
+      const id = fake.state().workspaces[0]?.id;
+
+      const c = await close({ id: "TC-0099.1", discardWorktree: false }, ctx(herdr(null)));
+      expect(c.code).toBe(0);
+      expect(c.envelope.tasks[0]?.backend_ids.workspace).toBe(id);
+      expect(fake.state().workspaces).toEqual([]);
+      expect(fake.calls().filter((call) => call[0] === "workspace" && call[1] === "close")).toEqual([["workspace", "close", id ?? "missing"]]);
+    });
+  }
+
+  // Protects: a success that created nothing lists nothing. Fails if a
+  // worktree is recorded on the answer alone.
+  test("an empty success that created nothing", async () => {
+    fake.script({ createAnswer: "empty-noop" });
+    const r = await launch(herdr(), plan());
+    expect(r.outcome.kind).toBe("failed");
+    expect(r.kinds).toEqual([]);
+  });
+
+  // Protects: an agent that started but whose answer broke is listed
+  // (finding T3). Fails if the live agent is left out of the registry.
+  test("an agent that started but answered badly", async () => {
+    fake.script({ start: { codex: "started-garbage", claude: "started-garbage" } });
+    const codex = await launch(herdr(), plan());
+    expect(codex.outcome.kind).toBe("failed");
+    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-g000000000000002", label: "TC-0099.3 dz-g000000000000002", branch: "radiant/m", worktreePath: join(sb.root, "wt", "m") }));
+    expect(claude.kinds).toEqual(["workspace", "tab", "pane", "worktree", "agent"]);
+  });
+
+  // Protects: Spec 2.3 and 6, the request never comes back through any field
+  // of the answer (finding T1). Fails if the code, the name or the state
+  // carries the request into the diagnosis.
+  test("the request echoed in code, name or state is redacted", async () => {
+    const be = herdr();
+    await launch(be, plan());
+    const request = "Demerzel: tarefa TC-0099.1. Leia os pointers abaixo e execute a tarefa no papel indicado.";
+    for (const mode of ["echo-code", "echo-name", "echo-status"] as const) {
+      fake.script({ prompt: mode });
+      const error = await be.send("dz-0123456789abcdef", request).catch((e: unknown) => e);
+      expect(error, mode).toBeInstanceOf(BackendError);
+      expect(String((error as Error).message), mode).not.toContain("Leia os pointers");
+    }
+  });
+});
+
+describe("required cases of section 11 (finding T4)", () => {
+  // Protects: a path with a line break never reaches herdr. Fails if the
+  // check is removed and herdr is called.
+  test("a line break in the worktree path", async () => {
+    const r = await launch(herdr(), plan({ harness: "claude-code", worktreePath: join(sb.root, "wt", "a\nb") }));
+    expect(r.outcome.kind === "failed" && r.outcome.reason).toContain("quebra de linha");
+    expect(fake.calls()).toEqual([]);
+  });
+
+  // Protects: H3, a workspace without a tab maps to null tab and pane, never
+  // to an invented one. Fails if the mapping makes them up.
+  test("a workspace without a tab", async () => {
+    fake.script({ extraWorkspaces: [{ workspace_id: "w9", label: "solto" }] });
+    const snap = await herdr().snapshot();
+    expect(snap.workspaces).toEqual([{ id: "w9", label: "solto", tab: null, pane: null }]);
+  });
+});

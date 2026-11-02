@@ -1,4 +1,4 @@
-export type { Backend, LaunchOutcome, LaunchPlan, Preparation, Probe, SendOutcome, Snapshot } from "./backend.ts";
+export { BackendError, type Backend, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot } from "./backend.ts";
 export { collect } from "./commands/collect.ts";
 export { close, type CloseInput } from "./commands/close.ts";
 export type { Context, Envelope, Outcome, Refusal, TaskView } from "./commands/common.ts";

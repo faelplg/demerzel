@@ -141,7 +141,7 @@ export class FakeBackend implements Backend {
   async probe(): Promise<Probe> {
     const { script } = this.load();
     this.log("probe", false);
-    return { running: script.running, compatible: script.compatible, versionOk: script.versionOk, version: script.versionOk ? "0.9.0" : "0.8.0", minimum: "0.9.0" };
+    return { running: script.running, compatible: script.compatible, versionOk: script.versionOk, version: script.versionOk ? "0.9.0" : "0.8.0", minimum: "0.9.0", detail: null };
   }
 
   async snapshot(): Promise<Snapshot> {

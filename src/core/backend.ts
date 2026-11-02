@@ -9,7 +9,23 @@ export type Probe = {
   versionOk: boolean;
   version: string | null;
   minimum: string;
+  // What the backend said when it is not usable, for the refusal message.
+  detail: string | null;
 };
+
+// Spec 2.3, revision 0.9: a backend failure in the middle of a command, such
+// as a transport error or an answer that is not what the backend promises.
+// It carries the backend command that failed and a summary of its error,
+// never the request text.
+export class BackendError extends Error {
+  constructor(
+    readonly command: string,
+    readonly detail: string,
+  ) {
+    super(`${command}: ${detail}`);
+    this.name = "BackendError";
+  }
+}
 
 export type SnapshotAgentStatus = "working" | "blocked" | "idle" | "done" | "unknown";
 
