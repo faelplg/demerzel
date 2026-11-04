@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.12, 2026-11-04
+Revisão da Spec: 0.13, 2026-11-04
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -358,8 +358,12 @@ incremento.
      o comando que os mostra, porque os erros repetem valores do contrato
      (seção 6). Em `routing`, vira `routing-invalid` com os erros na
      mensagem, porque o `routing.json` é do usuário, não do contrato; salvo
-     quando algum erro é de candidato sem adapter (`harness sem adapter`): aí
-     a recusa é `harness-without-adapter`, com os demais erros na mensagem;
+     quando algum erro é de candidato sem adapter (`harness without an
+     adapter`, texto da revisão fixada no pin): aí a recusa é
+     `harness-without-adapter`, com os demais erros na mensagem. Os erros de
+     `check_dispatch.py` são texto livre, sem código; por isso toda mudança
+     de pin confere esse trecho contra `validators/dispatch_formats.py` da
+     nova revisão;
    - cada `dispatch` executa no máximo uma vez o gate, uma vez `units` e uma
      vez `routing`, e para na primeira recusa.
 6. **Roteamento.** Aplica às regras validadas a regra pedida por
@@ -734,7 +738,17 @@ owner aprovar o PR desta revisão:
 | Pós-condição que não confere no `resume` | `launched` vai para `launch-failed`, com o motivo, e sai com `1`; o pedido não sai |
 | Agente ainda `blocked` no `resume` | Sai com `1` sem conferir; a conferência fica para o `resume` que vai enviar |
 
-Revisão 0.11, 2026-11-04, ao preparar o contrato da integração Radiant
+Revisão 0.11, 2026-11-04, ao fixar o pin em
+`9612a8cd5396a1d77776faf462dc48c8bd9d734a`, a tradução do Radiant para o
+inglês em [faelplg/radiant#27](https://github.com/faelplg/radiant/pull/27). Os
+prefixos `PASS:` e `HOLD:` e o formato JSON não mudaram; mudou o texto das
+mensagens. Valem quando o owner aprovar o PR desta revisão:
+
+| Questão | Decisão |
+| --- | --- |
+| Erro de candidato sem adapter | O trecho procurado nos erros de `routing` passa a ser `harness without an adapter`, conferido a cada mudança de pin. Alternativa descartada: o Demerzel conferir `adapters/<harness>/` por conta própria, que seria uma segunda implementação da regra; a detecção sem depender do texto pede um código de erro no `check_dispatch.py`, mudança do Radiant |
+
+Revisão 0.12, 2026-11-04, ao preparar o contrato da integração Radiant
 (TC-0003). Valem quando o owner aprovar o PR do contrato:
 
 | Questão | Decisão |
@@ -743,7 +757,7 @@ Revisão 0.11, 2026-11-04, ao preparar o contrato da integração Radiant
 | Validator que não responde como prometido | Recusa `validator-failed`, sem efeito, para saída `2`, execução que falha, inclusive sem `python3`, ou saída fora do JSON esperado |
 | Base resolvida duas vezes | A integração resolve a base uma vez e entrega o commit ao núcleo; a ref pedida fica em `provenance.base_ref` |
 
-Revisão 0.12, 2026-11-04, depois da crítica do TC-0003 pelo Codex em
+Revisão 0.13, 2026-11-04, depois da crítica do TC-0003 pelo Codex em
 `gpt-6-astra`, papel `radiant-grill`: oito objeções, todas aceitas pelo owner
 em 2026-11-04. Valem quando o owner aprovar o PR do contrato:
 
@@ -753,6 +767,6 @@ em 2026-11-04. Valem quando o owner aprovar o PR do contrato:
 | Piso de capacidade | A capacidade da unidade ou, sem ela, a padrão do papel, resolvida antes dos candidatos |
 | Erros de `units` na recusa | Só a contagem e o comando que os mostra, porque repetem valores do contrato; os de `routing` passam como vêm |
 | Mapa do commit base | Objeto JSON com o mesmo `radiant_revision`, senão `pin-mismatch`; `contracts` inutilizável é `contract-not-found`; o gate completo só roda no checkout chamador |
-| Protocolo dos validators | Uma linha por executável, seção 3, item 2; `validator-failed` para o que fica fora dele. Substitui a decisão da revisão 0.11 |
+| Protocolo dos validators | Uma linha por executável, seção 3, item 2; `validator-failed` para o que fica fora dele. Substitui a decisão da revisão 0.12 |
 | Execuções por `dispatch` | Uma vez o gate, uma `units` e uma `routing`, parando na primeira recusa |
 | Bytecode | Validators com `PYTHONDONTWRITEBYTECODE=1`; nada gravado no checkout Radiant, nem arquivo ignorado |
