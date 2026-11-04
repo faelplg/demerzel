@@ -3,3 +3,9 @@
 
 # Dependências de desenvolvimento do Bun
 node_modules/
+
+# Metadados do Finder no macOS
+.DS_Store
+
+# Estado local do Claude Code, inclusive os worktrees do app
+.claude/
