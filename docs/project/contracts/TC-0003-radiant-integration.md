@@ -1,7 +1,10 @@
 # Radiant Task Contract - Demerzel - Incremento 5, integração Radiant
 
 **Contract ID:** `TC-0003`
-**Revisão do contrato:** 1, 2026-11-04
+**Revisão do contrato:** 2, 2026-11-04. A revisão 1 recebeu a crítica do
+Codex em `gpt-6-astra`, papel `radiant-grill`: oito objeções, todas aceitas
+pelo owner e aplicadas aqui e na Spec 0.12, antes de qualquer execução
+([crítica](../verification/2026-11-04-tc-0003-grill.md))
 **Project:** `demerzel`
 **Iteration:** Plan 0.4, incremento 5
 **Status:** `READY`
@@ -34,7 +37,7 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
 **Source plan/spec:**
 
 - [Plan 0.4](../PLAN.md), incremento 5.
-- [Spec 0.11](../SPEC.md): seção 2.5, conferir o lançamento; seção 2.4, a
+- [Spec 0.12](../SPEC.md): seção 2.5, conferir o lançamento; seção 2.4, a
   parte `radiant`; seção 3 inteira; seção 4, `dispatch` e `resume`; seção 5,
   as recusas da integração; seção 6; seção 7, verificações 2, 3, 4, 5 (a
   parte nova da revisão 0.10) e 6.
@@ -55,7 +58,7 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
 
 ## 3. Inputs
 
-- `docs/project/SPEC.md` (revisão 0.11) e `docs/project/PLAN.md` (0.4).
+- `docs/project/SPEC.md` (revisão 0.12) e `docs/project/PLAN.md` (0.4).
 - O núcleo em `src/core/` e o backend herdr em `src/herdr/`, com a
   pós-condição do Claude Code hoje dentro de `launch` em
   `src/herdr/backend.ts`.
@@ -66,14 +69,18 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
 - Conferido pelo orquestrador em 2026-11-04, ao preparar este contrato, no
   pin `aea22d4`, com `python3` do sistema:
   - `check_project.py <raiz>` deste repositório sai com `0` e imprime
-    `PASS: Radiant aea22d4...; pin e paths conferidos.`;
+    `PASS: Radiant aea22d4...; pin e paths conferidos.` no stdout; sem
+    `.radiant.json`, sai com `1` e imprime uma linha `HOLD:` no stderr;
   - `check_dispatch.py routing` com o `routing.example.json` do Radiant em
     `$XDG_CONFIG_HOME/radiant/routing.json` sai com `0` e imprime o JSON das
     regras; com `default: [{"harness": "opencode"}]`, sai com `1` e imprime
     `{"errors": ["default: harness sem adapter 'opencode'"]}`;
   - `check_dispatch.py units -`, com um bloco `radiant-units` válido na
     entrada padrão, sai com `0` e imprime `{"units": [...]}` com `id`,
-    `role`, `requires`, `objective`, `writes`, `depends_on` e `done_when`;
+    `role`, `requires`, `objective`, `writes`, `depends_on` e `done_when`,
+    sem completar `capability` ausente com o padrão do papel; com um papel
+    desconhecido, sai com `1` e o erro repete o valor do campo, por exemplo
+    `perfil desconhecido 'MARCADOR'`;
   - os adapters `claude-code` e `codex` existem; `capabilities.json` mapeia
     `deep`, `standard` e `light` para IDs completos; o `provides.json` do
     `claude-code` é `{"provides": []}`;
@@ -95,11 +102,11 @@ src/radiant/
 test/radiant/
 src/cli.ts
 src/cli/
-test/cli.test.ts
 src/core/               (só as mudanças do output 1)
 src/herdr/              (só as mudanças do output 1)
 test/core/              (testes novos; ver a exceção do output 1)
 test/herdr/             (testes novos; ver a exceção do output 1)
+test/cli.test.ts        (inclusive os testes que afirmam o dispatch recusado)
 package.json            (só a seção scripts)
 AGENTS.md               (só a lista de comandos)
 .github/workflows/check.yml  (só o checkout do Radiant no pin, do output 5)
@@ -154,9 +161,11 @@ próprias unidades.
      Codex, a operação passa sem chamada ao herdr;
    - em `src/core/fake-backend.ts`, o desfecho da conferência controlável
      pelo teste, com as chamadas gravadas;
-   - testes novos em `test/core/` e `test/herdr/`. Os testes existentes não
-     mudam, salvo um que afirme a sequência exata de chamadas ao backend no
-     `resume`; cada mudança dessas entra no relatório com o motivo.
+   - testes novos em `test/core/` e `test/herdr/`. Os testes existentes
+     dessas duas pastas não mudam, salvo um que afirme a sequência exata de
+     chamadas ao backend no `resume`; cada mudança dessas entra no relatório
+     com o motivo. Em `test/cli.test.ts`, os testes que afirmam o `dispatch`
+     recusado até o incremento 5 passam a afirmar o comando novo.
 2. `src/radiant/` com a integração da Spec 3: projeto, gate de pin, base,
    contrato do commit base, unidades e regras por `check_dispatch.py`,
    roteamento, retorno, pedido, branch, dependências e `writes`, e as recusas
@@ -211,9 +220,12 @@ Cada item aponta para a Spec, que continua sendo a fonte.
 Correção do achado P1 (output 1):
 
 - [ ] P1. Conferir o lançamento é operação do backend (Spec 2.5). No Claude
-  Code, ela lê o `foreground_cwd` do próprio agente por `herdr agent get` e o
-  branch por `git rev-parse --verify refs/heads/<branch>`, e não confere quando
-  o cwd não é o worktree, o branch falta ou não aponta para o commit base. No
+  Code, ela lê o `foreground_cwd` do próprio agente por `herdr agent get`, o
+  branch por `git rev-parse --verify refs/heads/<branch>` e o `HEAD` do
+  worktree por `git -C <worktree> symbolic-ref HEAD` e `rev-parse HEAD`, e não
+  confere quando o cwd não é o worktree, o branch falta ou não aponta para o
+  commit base, ou o `HEAD` do worktree é outro branch, outro commit ou está
+  destacado. No
   Codex, confere sem chamada. `launch` do Claude Code usa a mesma operação, e
   os testes atuais da pós-condição continuam passando.
 - [ ] P2. `resume` segue a ordem da Spec 4: com o agente ainda `blocked`, sai
@@ -234,31 +246,38 @@ Integração Radiant (outputs 2 e 3):
   padrão `radiant/`; chave desconhecida ou tipo errado é `config-invalid`.
 - [ ] I2. Projeto e gate de pin (Spec 3, itens 1 e 2): a raiz é
   `git rev-parse --show-toplevel`; `python3 <root>/validators/check_project.py
-  <raiz>` com saída diferente de `0` é `pin-mismatch`, com a linha `HOLD:` do
-  validator na mensagem.
+  <raiz>` com saída `1` e linha `HOLD:` no stderr é `pin-mismatch`, com essa
+  linha na mensagem. Qualquer outro desfecho fora de `0` com `PASS:` é
+  `validator-failed` (I7).
 - [ ] I3. Base (Spec 3, item 3): `--base <ref>`, ou o branch atual, ou o
   commit de HEAD destacado, resolvida para um commit uma vez só; o
-  `.radiant.json` do commit base com `radiant_revision` diferente do
-  validado, ou sem ele, é `pin-mismatch`. A tarefa entregue ao núcleo leva
+  `.radiant.json` do commit base ausente, que não é objeto JSON, sem
+  `radiant_revision` ou com outro valor é `pin-mismatch`. A tarefa entregue ao núcleo leva
   esse commit como `base`, e a ref pedida vai em `provenance` como
   `base_ref`, para que o núcleo lance exatamente o commit que a integração
   validou (Spec 0.11).
 - [ ] I4. Contrato (Spec 3, item 4): o prefixo do ID localiza
   `TC-NNNN-*.md` no diretório `contracts` do `.radiant.json` do commit base,
-  lido do commit base; nenhum ou mais de um é `contract-not-found`.
+  lido do commit base; nenhum ou mais de um é `contract-not-found`, e também
+  `contracts` ausente, nulo ou fora de um path relativo dentro do
+  repositório.
 - [ ] I5. Unidades (Spec 3, item 5): o contrato do commit base vai à entrada
-  padrão de `check_dispatch.py units -`; saída `1` é `units-invalid` com os
-  erros; ID fora da lista é `unit-not-found`.
+  padrão de `check_dispatch.py units -`; saída `1` é `units-invalid`, com só
+  a contagem de erros e o comando que os mostra, nunca o texto dos erros,
+  que repete valores do contrato; ID fora da lista é `unit-not-found`.
 - [ ] I6. Regras (Spec 3, item 5): `check_dispatch.py routing`; saída `1` é
   `routing-invalid` com os erros, ou `harness-without-adapter` quando algum
   erro é de harness sem adapter; `--rule` inexistente é `routing-invalid`.
-- [ ] I7. Validator que sai com `2`, que não roda ou que devolve algo que não
-  é o JSON esperado é `validator-failed`, com o validator e o resumo do erro
-  (Spec 0.11).
+- [ ] I7. Validator fora do próprio protocolo, pela tabela da Spec 3, item
+  2: outra saída, encerramento por sinal, `python3` ausente ou texto fora do
+  formato, inclusive JSON inválido do `check_dispatch.py`, é
+  `validator-failed`, com o validator e o resumo do erro, sem conteúdo do
+  contrato. Os validators rodam com `PYTHONDONTWRITEBYTECODE=1`.
 - [ ] I8. Roteamento (Spec 3, item 6): descarta candidato sem suporte no
-  backend ou cujo `provides.json` não cobre os `requires`; capacidade efetiva
-  do candidato, senão da unidade, senão do papel em `agents.json`; candidato
-  abaixo da capacidade da unidade não é viável, na ordem de `agents.json`; o
+  backend ou cujo `provides.json` não cobre os `requires`; o piso é a
+  capacidade da unidade ou, sem ela, a padrão do papel em `agents.json`,
+  resolvido antes dos candidatos; capacidade efetiva do candidato, senão o
+  piso; candidato abaixo do piso não é viável, na ordem de `agents.json`; o
   primeiro viável vence, com o modelo do `capabilities.json` e o `effort` do
   candidato; sem viável, `no-viable-candidate`, com `hold: true` quando algum
   candidato só falhou por capacidade.
@@ -297,13 +316,13 @@ Integração Radiant (outputs 2 e 3):
 | EB-05 Manutenibilidade | REQUIRED | `src/radiant/` depende do núcleo; o núcleo não depende dela | Teste de fronteira |
 | EB-06 Dependências | REQUIRED | Nenhuma dependência nova; o YAML fica no Radiant | `bun.lock` sem diff |
 | EB-07 Diagnóstico | REQUIRED | Erros dos validators e linha `HOLD:` do gate chegam à mensagem, com o próximo passo | Asserções no envelope `--json` e no texto |
-| EB-08 Experiência e eficiência | APPLICABLE | Um `dispatch` executa cada validator no máximo uma vez | Contagem de execuções por um `python3` intermediário no `PATH` do teste, que repassa ao real |
+| EB-08 Experiência e eficiência | APPLICABLE | Um `dispatch` executa no máximo uma vez o gate, uma vez `units` e uma vez `routing`, parando na primeira recusa | Contagem de execuções por um `python3` intermediário no `PATH` do teste, que repassa ao real |
 
 ## 9. Project-specific constraints
 
 - Bun e TypeScript estrito, sem afrouxar o `tsconfig.json`.
-- Os validators são executados com argumentos em lista, nunca por shell, e o
-  contrato chega pela entrada padrão.
+- Os validators são executados com argumentos em lista, nunca por shell,
+  com `PYTHONDONTWRITEBYTECODE=1`, e o contrato chega pela entrada padrão.
 - Todo processo em teste roda com `HOME`, `XDG_STATE_HOME` e
   `XDG_CONFIG_HOME` em pastas próprias do teste; a configuração e o
   `routing.json` reais do owner nunca são lidos nem gravados.
@@ -351,8 +370,9 @@ conferência que confere envia uma vez; conferência que não confere vai a
 `launch-failed` sem chamada de envio; falha do backend na conferência é
 `backend-unavailable` sem nenhuma gravação; agente ainda `blocked` sai com `1`
 sem chamada de conferência. Com o herdr falso: a conferência do `resume`
-acusa cwd fora do worktree, branch ausente e branch fora do commit base, e não
-faz chamada no Codex.
+acusa cwd fora do worktree, branch ausente, branch fora do commit base e o
+`HEAD` do worktree trocado para outro branch ou destacado com a ref original
+intacta, e não faz chamada no Codex.
 
 ### Integração, no `bun run check`
 
@@ -362,18 +382,26 @@ pin (verificação 6):
 - cada recusa de I1 a I13 com saída `2`, o código esperado e prova de nenhum
   efeito: backend falso sem chamada de efeito, nenhum arquivo de tarefa,
   nenhum branch;
-- base com pin diferente do validado, contrato só no working tree e
-  contrato diferente entre working tree e commit base, lido do commit base;
+- base com pin diferente do validado, `.radiant.json` da base que não é
+  JSON e `contracts` nulo, contrato só no working tree e contrato diferente
+  entre working tree e commit base, lido do commit base;
 - roteamento contra o Radiant real: descarte por `provides` sem viável,
   `hold: true` por capacidade, capacidade do candidato acima da unidade, o
-  primeiro viável vencendo e o modelo vindo do `capabilities.json`; descarte
+  primeiro viável vencendo, o modelo vindo do `capabilities.json` e uma
+  unidade sem `capability` de um papel `deep` recusando candidato `light`;
+  descarte
   por backend com o backend falso declarando só um harness;
 - a função pura do roteamento com dados em memória, inclusive o candidato que
   cobre `requires` e vence depois de um descartado;
 - verificação 4: um contrato de fixture com marcadores únicos, e nenhum
-  deles no pedido gravado ou enviado;
-- validator que sai com `2` e `python3` ausente do `PATH`, ambos
-  `validator-failed`, com um `python3` intermediário no `PATH` do teste;
+  deles no pedido gravado ou enviado, nem no stdout, stderr ou envelope de
+  uma recusa, inclusive `units-invalid` com um marcador no papel;
+- `validator-failed` para cada desfecho fora do protocolo, com um `python3`
+  intermediário no `PATH` do teste: saída `2` em cada validator, sinal, JSON
+  inválido do `check_dispatch.py`, gate saindo com `1` sem `HOLD:` e
+  `python3` ausente do `PATH`;
+- nenhum arquivo novo no checkout Radiant, contando os ignorados, por
+  `git status --porcelain --ignored` antes e depois da suíte;
 - uma base que muda de commit depois da validação, com o núcleo lançando o
   commit validado e a ref em `base_ref`;
 - o fluxo `dispatch`, `status`, `wait`, `collect` e `close` pelo CLI com o
@@ -391,6 +419,9 @@ O Build quebra cada regra abaixo de propósito, mostra o teste falhando e
 desfaz, com o commit antes da quebra e o resultado tirado do código de saída:
 
 - o `resume` sem conferir o lançamento;
+- a conferência sem olhar o `HEAD` do worktree;
+- o piso de capacidade sem o padrão do papel;
+- os erros de `units` copiados para a mensagem;
 - o contrato lido do working tree em vez do commit base;
 - a comparação do pin no commit base removida;
 - um candidato abaixo da capacidade da unidade aceito;
@@ -423,9 +454,11 @@ A tarefa só pode ser declarada `DONE` quando:
 - [ ] o `check` do CI passou nos dois sistemas da matriz, com o Radiant no
   pin, e não só na máquina do Build;
 - [ ] as mutações da seção 11 foram mostradas falhando;
+- [ ] o checkout Radiant terminou a suíte sem arquivo novo, contando os
+  ignorados;
 - [ ] contra o commit de entrada, `src/core/` e `src/herdr/` só têm as
-  mudanças do output 1, os testes existentes só mudaram pela exceção do
-  output 1, `.github/` só tem o passo do output 5, e `bun.lock`,
+  mudanças do output 1, os testes existentes de `test/core/` e
+  `test/herdr/` só mudaram pela exceção do output 1, `.github/` só tem o passo do output 5, e `bun.lock`,
   `tsconfig.json` e `.gitignore` não mudaram;
 - [ ] a crítica independente foi feita pelo orquestrador e cada objeção foi
   aceita com correção ou recusada com motivo;

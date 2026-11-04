@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.11, 2026-11-04
+Revisão da Spec: 0.12, 2026-11-04
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -221,7 +221,7 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 | Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <label> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
 | Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <label> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args>`. No Codex, `<args>` são modelo e esforço. No Claude Code, vêm antes `--worktree <nome> --settings <hook>`, descritos abaixo. |
-| Conferir o lançamento, Claude Code | `herdr agent get <nome>`, com o `foreground_cwd` do próprio agente, e `git -C <projeto> rev-parse --verify refs/heads/<branch>`. No Codex não há pós-condição e a conferência passa sem chamada. |
+| Conferir o lançamento, Claude Code | `herdr agent get <nome>`, com o `foreground_cwd` do próprio agente; `git -C <projeto> rev-parse --verify refs/heads/<branch>`; e, no worktree, `git -C <worktree> symbolic-ref HEAD` e `git -C <worktree> rev-parse HEAD`. No Codex não há pós-condição e a conferência passa sem chamada. |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
 | Esperar | Ciclo próprio: a cada intervalo curto, lê `herdr api snapshot` e confere o arquivo de retorno, até cada tarefa chegar a um estado de parada ou o timeout expirar. `herdr agent wait` não serve sozinho: não vê o arquivo de retorno e, sem `--until`, só volta em `idle`, `done` ou `blocked`. |
@@ -250,9 +250,10 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   comando com cada argumento entre aspas simples, no escape de POSIX `sh`, e
   grava o JSON no registro antes do primeiro efeito.
 - Pós-condição do lançamento no Claude Code: depois de `agent start`, o
-  `foreground_cwd` do agente é o path do worktree, e o branch existe e aponta
-  para o commit base. Se não, a tarefa vai para `launch-failed`, com
-  `created` listando o que existe. Assim um hook `WorktreeCreate` ou um
+  `foreground_cwd` do agente é o path do worktree, o branch existe e aponta
+  para o commit base, e o `HEAD` do worktree é esse branch, nesse commit, e
+  não outro branch nem `HEAD` destacado. Se não, a tarefa vai para
+  `launch-failed`, com `created` listando o que existe. Assim um hook `WorktreeCreate` ou um
   `disableAllHooks` do próprio projeto, que se combinam com o `--settings` de
   modos que o Demerzel não conferiu, não passam despercebidos.
 - A mesma pós-condição é uma operação própria do backend, usada pelo
@@ -312,23 +313,36 @@ incremento.
 1. **Projeto.** Raiz do checkout chamador (`git rev-parse --show-toplevel`),
    que precisa ter `.radiant.json`.
 2. **Gate de pin.** Executa
-   `python3 <radiant.root>/validators/check_project.py <raiz>`. Saída
-   diferente de 0 é recusa, com a linha `HOLD:` do validator na mensagem. O
-   gate compara o pin com o único checkout Radiant da máquina, então o
-   consumidor precisa estar no mesmo pin desse checkout.
+   `python3 <radiant.root>/validators/check_project.py <raiz>`. O gate
+   compara o pin com o único checkout Radiant da máquina, então o consumidor
+   precisa estar no mesmo pin desse checkout. Os validators rodam com
+   `PYTHONDONTWRITEBYTECODE=1`, para não gravar bytecode no checkout Radiant.
+   Cada um tem o próprio protocolo:
+
+   | Validator | Sucesso | Erro de domínio | Qualquer outra coisa |
+   | --- | --- | --- | --- |
+   | `check_project.py` | saída `0` com linha `PASS:` no stdout | saída `1` com linha `HOLD:` no stderr, que vira `pin-mismatch` com essa linha na mensagem | `validator-failed` |
+   | `check_dispatch.py` | saída `0` com o JSON prometido | saída `1` com `{"errors": [...]}`, item 5 | `validator-failed` |
+
+   "Qualquer outra coisa" inclui outra saída, encerramento por sinal,
+   `python3` ausente e texto fora do formato prometido.
 3. **Base.** `--base <ref>`, ou o branch atual do checkout chamador; em HEAD
    destacado, o commit de HEAD. A base é resolvida para um commit e os dois são
-   gravados. O `.radiant.json` lido do commit base precisa ter o mesmo
-   `radiant_revision` que o gate validou no checkout chamador; se diverge, ou
-   se falta, a recusa é `pin-mismatch`. Assim o gate vale para a árvore que
-   será despachada, não só para o working tree de quem chama. A base é
+   gravados. O `.radiant.json` lido do commit base precisa ser um objeto JSON
+   com o mesmo `radiant_revision` que o gate validou no checkout chamador; se
+   falta, não é JSON, não tem a chave ou diverge, a recusa é `pin-mismatch`.
+   Do resto desse mapa, a integração só usa `contracts`, conferido no item 4.
+   Assim o pin validado vale para a árvore que será despachada; o gate
+   completo só roda no checkout chamador. A base é
    resolvida uma vez só: a tarefa entregue ao núcleo leva esse commit em
    `base`, e a ref pedida vai em `provenance` como `base_ref`, para que o
    núcleo lance o commit que a integração validou mesmo que o branch ande no
    meio.
 4. **Contrato.** O prefixo do ID (`TC-0025` em `TC-0025.1`) localiza o arquivo
    `TC-0025-*.md` no diretório `contracts` do `.radiant.json` do commit base;
-   precisa haver exatamente um. O contrato é lido do commit base, não do working tree, para
+   precisa haver exatamente um. `contracts` ausente, nulo ou fora de um path
+   relativo dentro do repositório, como no `check_project.py`, também é
+   `contract-not-found`. O contrato é lido do commit base, não do working tree, para
    que a sessão despachada veja o mesmo texto que foi validado. A ativação
    (`ACTIVE.md`) não é verificada: é texto livre, e ativar contrato é decisão do
    orquestrador.
@@ -339,21 +353,25 @@ incremento.
      `{"units": [...]}` já lido pelo leitor restrito do Radiant;
    - `routing`, sem path, valida `$XDG_CONFIG_HOME/radiant/routing.json` (ou
      `~/.config/radiant/routing.json`) e devolve as regras;
-   - saída `0` traz o valor em JSON; saída `1` traz `{"errors": [...]}`, que
-     vira `units-invalid` ou `routing-invalid` com os erros na mensagem, salvo
-     quando algum erro de `routing` é de candidato sem adapter
-     (`harness sem adapter`): aí a recusa é `harness-without-adapter`, com os
-     demais erros na mensagem; saída `2` é erro de uso e vira
-     `validator-failed`, nunca efeito.
+   - saída `0` traz o valor em JSON; saída `1` traz `{"errors": [...]}`. Em
+     `units`, vira `units-invalid`, e a mensagem traz só a contagem de erros e
+     o comando que os mostra, porque os erros repetem valores do contrato
+     (seção 6). Em `routing`, vira `routing-invalid` com os erros na
+     mensagem, porque o `routing.json` é do usuário, não do contrato; salvo
+     quando algum erro é de candidato sem adapter (`harness sem adapter`): aí
+     a recusa é `harness-without-adapter`, com os demais erros na mensagem;
+   - cada `dispatch` executa no máximo uma vez o gate, uma vez `units` e uma
+     vez `routing`, e para na primeira recusa.
 6. **Roteamento.** Aplica às regras validadas a regra pedida por
    `--rule <id>`, ou `default` sem a flag:
    - descarta candidatos sem suporte no backend ou cujo `provides.json` não
      cobre os `requires` da unidade. Candidato sem adapter Radiant já é erro
      de `check_dispatch.py`, que só aceita como adapter o diretório com
      `README.md`, `capabilities.json` e `provides.json`;
-   - capacidade efetiva: a do candidato quando presente, senão a da unidade,
-     senão a padrão do papel em `agents.json`; candidato abaixo da capacidade
-     da unidade não é viável;
+   - piso: a capacidade da unidade, ou, sem ela, a padrão do papel em
+     `agents.json`, resolvido antes de olhar os candidatos. Capacidade
+     efetiva: a do candidato quando presente, senão o piso. Candidato abaixo
+     do piso, na ordem de `agents.json`, não é viável;
    - o primeiro viável vence; o modelo vem de
      `adapters/<harness>/capabilities.json`;
    - sem viável, recusa; se algum candidato só falhou por capacidade, a recusa
@@ -526,7 +544,7 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | `radiant.root` ausente | `radiant-root-missing` | Integração |
 | Contrato ausente ou ambíguo no commit base | `contract-not-found` | Integração |
 | `routing.json` ausente ou inválido, ou regra inexistente | `routing-invalid` | Integração |
-| Validator que sai com `2`, que não roda, inclusive sem `python3`, ou que devolve algo fora do JSON esperado | `validator-failed` | Integração |
+| Validator fora do próprio protocolo (seção 3, item 2): outra saída, sinal, `python3` ausente ou texto fora do formato | `validator-failed` | Integração |
 | Tarefa ou pedido fora do formato | `task-invalid` | Núcleo |
 | ID já registrado, em qualquer ciclo de vida | `task-exists` | Núcleo |
 | Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
@@ -571,7 +589,9 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    no JSON e prova de nenhum efeito (backend falso sem chamadas de efeito, sem
    arquivo de registro, sem branch).
 4. **Pedido.** Um contrato de fixture com marcadores únicos prova que nenhum
-   deles aparece no pedido gravado ou enviado.
+   deles aparece no pedido gravado ou enviado, nem no stdout, stderr ou
+   envelope de uma recusa, inclusive `units-invalid` com o marcador num campo
+   que o validator recusa.
 5. **Registro.** Transições e cada linha da matriz da seção 4,
    reconciliação para `lost`, `launch-failed` com `created`, `request_sent`
    em cada desfecho de envio, comandos que gravam serializados pelo lock
@@ -722,3 +742,17 @@ Revisão 0.11, 2026-11-04, ao preparar o contrato da integração Radiant
 | Lock nas recusas do `dispatch` | As da integração rodam antes, sem o lock, porque só leem o commit base, o checkout Radiant e arquivos do usuário; as do núcleo continuam sob o lock |
 | Validator que não responde como prometido | Recusa `validator-failed`, sem efeito, para saída `2`, execução que falha, inclusive sem `python3`, ou saída fora do JSON esperado |
 | Base resolvida duas vezes | A integração resolve a base uma vez e entrega o commit ao núcleo; a ref pedida fica em `provenance.base_ref` |
+
+Revisão 0.12, 2026-11-04, depois da crítica do TC-0003 pelo Codex em
+`gpt-6-astra`, papel `radiant-grill`: oito objeções, todas aceitas pelo owner
+em 2026-11-04. Valem quando o owner aprovar o PR do contrato:
+
+| Questão | Decisão |
+| --- | --- |
+| Alcance da pós-condição | Inclui o `HEAD` do worktree: o branch da tarefa, no commit base, nunca outro branch nem `HEAD` destacado |
+| Piso de capacidade | A capacidade da unidade ou, sem ela, a padrão do papel, resolvida antes dos candidatos |
+| Erros de `units` na recusa | Só a contagem e o comando que os mostra, porque repetem valores do contrato; os de `routing` passam como vêm |
+| Mapa do commit base | Objeto JSON com o mesmo `radiant_revision`, senão `pin-mismatch`; `contracts` inutilizável é `contract-not-found`; o gate completo só roda no checkout chamador |
+| Protocolo dos validators | Uma linha por executável, seção 3, item 2; `validator-failed` para o que fica fora dele. Substitui a decisão da revisão 0.11 |
+| Execuções por `dispatch` | Uma vez o gate, uma `units` e uma `routing`, parando na primeira recusa |
+| Bytecode | Validators com `PYTHONDONTWRITEBYTECODE=1`; nada gravado no checkout Radiant, nem arquivo ignorado |
