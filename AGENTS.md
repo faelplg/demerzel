@@ -1,19 +1,19 @@
 <!-- radiant:begin -->
-# Orientação do projeto
+# Project guidance
 
-Este projeto usa Radiant. Localize seu checkout pelo bootstrap global do usuário
-e leia nele o README do adapter do harness em uso, em `adapters/<harness>/`,
-para validar a revisão e carregar o Core. Se o pointer estiver ausente,
-configure-o antes de executar sob Radiant. Quem não usa o Radiant segue só
-os comandos e as regras locais abaixo. Em harnesses que leem outro arquivo
-de instruções, esse arquivo contém apenas um import deste mapa; no Claude Code,
-`CLAUDE.md` com a linha `@AGENTS.md`.
+This project uses Radiant. Locate its checkout through the user's global
+bootstrap and read there the README of the adapter for the harness in use, in
+`adapters/<harness>/`, to validate the revision and load the Core. If the
+pointer is missing, set it up before running under Radiant. Anyone who does
+not use Radiant follows only the local commands and rules below. In harnesses
+that read another instructions file, that file holds only an import of this
+map; in Claude Code, `CLAUDE.md` with the line `@AGENTS.md`.
 
-O mapa de estado e o commit escolhido estão em `.radiant.json` nesta raiz.
-Leia os artefatos necessários à tarefa e o ponteiro de contrato indicado no
-mapa. Regras e comandos deste produto pertencem ao contexto local indicado ali.
-Quando houver `engineering_profile` no mapa, leia-o junto com o Baseline do
-checkout Radiant antes de iniciar um Build.
+The state map and the chosen commit are in `.radiant.json` at this root. Read
+the artifacts the task needs and the contract pointer given in the map. This
+product's rules and commands belong to the local context indicated there.
+When the map has an `engineering_profile`, read it together with the Baseline
+in the Radiant checkout before starting a Build.
 
 Stack: Bun 1.4.2 ou acima e TypeScript estrito, sem dependências de runtime.
 Comandos, da raiz:
