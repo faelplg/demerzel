@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.10, 2026-11-04
+Revisão da Spec: 0.11, 2026-11-04
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -337,9 +337,12 @@ incremento.
    - saída `0` traz o valor em JSON; saída `1` traz `{"errors": [...]}`, que
      vira `units-invalid` ou `routing-invalid` com os erros na mensagem, salvo
      quando algum erro de `routing` é de candidato sem adapter
-     (`harness sem adapter`): aí a recusa é `harness-without-adapter`, com os
-     demais erros na mensagem; saída `2` é erro de uso e vira falha interna,
-     nunca efeito.
+     (`harness without an adapter`, texto da revisão fixada no pin): aí a
+     recusa é `harness-without-adapter`, com os demais erros na mensagem;
+     saída `2` é erro de uso e vira falha interna, nunca efeito. Os erros de
+     `check_dispatch.py` são texto livre, sem código; por isso toda mudança de
+     pin confere esse trecho contra `validators/dispatch_formats.py` da nova
+     revisão.
 6. **Roteamento.** Aplica às regras validadas a regra pedida por
    `--rule <id>`, ou `default` sem a flag:
    - descarta candidatos sem suporte no backend ou cujo `provides.json` não
@@ -704,3 +707,13 @@ owner aprovar o PR desta revisão:
 | Superfície do backend | Conferir o lançamento vira operação própria, a mesma no `dispatch` e no `resume`; no Codex passa sem chamada |
 | Pós-condição que não confere no `resume` | `launched` vai para `launch-failed`, com o motivo, e sai com `1`; o pedido não sai |
 | Agente ainda `blocked` no `resume` | Sai com `1` sem conferir; a conferência fica para o `resume` que vai enviar |
+
+Revisão 0.11, 2026-11-04, ao fixar o pin em
+`9612a8cd5396a1d77776faf462dc48c8bd9d734a`, a tradução do Radiant para o
+inglês em [faelplg/radiant#27](https://github.com/faelplg/radiant/pull/27). Os
+prefixos `PASS:` e `HOLD:` e o formato JSON não mudaram; mudou o texto das
+mensagens. Valem quando o owner aprovar o PR desta revisão:
+
+| Questão | Decisão |
+| --- | --- |
+| Erro de candidato sem adapter | O trecho procurado nos erros de `routing` passa a ser `harness without an adapter`, conferido a cada mudança de pin. Alternativa descartada: o Demerzel conferir `adapters/<harness>/` por conta própria, que seria uma segunda implementação da regra; a detecção sem depender do texto pede um código de erro no `check_dispatch.py`, mudança do Radiant |
