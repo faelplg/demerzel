@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.10, 2026-11-04
+Revisão da Spec: 0.11, 2026-11-04
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -51,7 +51,8 @@ type Task = {
 ```
 
 A integração preenche `provenance` com revisão e raiz do Radiant, path do
-contrato e ID da regra. O núcleo só grava e devolve esses campos.
+contrato, ID da regra e `base_ref`, a ref da base pedida (seção 3, item 3).
+O núcleo só grava e devolve esses campos.
 
 `writes`: cada path é relativo à raiz do projeto, separado por `/`, sem `/`
 inicial, sem segmento vazio, `.` ou `..`; uma `/` final só marca diretório e
@@ -320,7 +321,11 @@ incremento.
    gravados. O `.radiant.json` lido do commit base precisa ter o mesmo
    `radiant_revision` que o gate validou no checkout chamador; se diverge, ou
    se falta, a recusa é `pin-mismatch`. Assim o gate vale para a árvore que
-   será despachada, não só para o working tree de quem chama.
+   será despachada, não só para o working tree de quem chama. A base é
+   resolvida uma vez só: a tarefa entregue ao núcleo leva esse commit em
+   `base`, e a ref pedida vai em `provenance` como `base_ref`, para que o
+   núcleo lance o commit que a integração validou mesmo que o branch ande no
+   meio.
 4. **Contrato.** O prefixo do ID (`TC-0025` em `TC-0025.1`) localiza o arquivo
    `TC-0025-*.md` no diretório `contracts` do `.radiant.json` do commit base;
    precisa haver exatamente um. O contrato é lido do commit base, não do working tree, para
@@ -338,8 +343,8 @@ incremento.
      vira `units-invalid` ou `routing-invalid` com os erros na mensagem, salvo
      quando algum erro de `routing` é de candidato sem adapter
      (`harness sem adapter`): aí a recusa é `harness-without-adapter`, com os
-     demais erros na mensagem; saída `2` é erro de uso e vira falha interna,
-     nunca efeito.
+     demais erros na mensagem; saída `2` é erro de uso e vira
+     `validator-failed`, nunca efeito.
 6. **Roteamento.** Aplica às regras validadas a regra pedida por
    `--rule <id>`, ou `default` sem a flag:
    - descarta candidatos sem suporte no backend ou cujo `provides.json` não
@@ -397,9 +402,12 @@ parado com `backend-unavailable`.
 
 ### `demerzel dispatch <unit-id> [--rule <id>] [--base <ref>] [--human-approved] [--json]`
 
-Todas as verificações da seção 5 rodam antes do primeiro efeito, sob o lock do
-projeto. Depois, grava e executa na ordem da seção 2.3: `recorded`,
-`launching`, worktree e sessão, agente, envio e `launched`.
+Todas as verificações da seção 5 rodam antes do primeiro efeito. As da
+integração rodam primeiro, sem o lock, porque só leem objetos Git do commit
+base, o checkout Radiant e arquivos do usuário, e não tocam o registro. As do
+núcleo rodam depois, sob o lock do projeto. Depois, grava e executa na ordem
+da seção 2.3: `recorded`, `launching`, worktree e sessão, agente, envio e
+`launched`.
 
 - `0`: agente iniciado e pedido enviado; devolve a tarefa gravada.
 - `1`: `launch-failed` (com `created`), agente bloqueado no startup
@@ -518,6 +526,7 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | `radiant.root` ausente | `radiant-root-missing` | Integração |
 | Contrato ausente ou ambíguo no commit base | `contract-not-found` | Integração |
 | `routing.json` ausente ou inválido, ou regra inexistente | `routing-invalid` | Integração |
+| Validator que sai com `2`, que não roda, inclusive sem `python3`, ou que devolve algo fora do JSON esperado | `validator-failed` | Integração |
 | Tarefa ou pedido fora do formato | `task-invalid` | Núcleo |
 | ID já registrado, em qualquer ciclo de vida | `task-exists` | Núcleo |
 | Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
@@ -704,3 +713,12 @@ owner aprovar o PR desta revisão:
 | Superfície do backend | Conferir o lançamento vira operação própria, a mesma no `dispatch` e no `resume`; no Codex passa sem chamada |
 | Pós-condição que não confere no `resume` | `launched` vai para `launch-failed`, com o motivo, e sai com `1`; o pedido não sai |
 | Agente ainda `blocked` no `resume` | Sai com `1` sem conferir; a conferência fica para o `resume` que vai enviar |
+
+Revisão 0.11, 2026-11-04, ao preparar o contrato da integração Radiant
+(TC-0003). Valem quando o owner aprovar o PR do contrato:
+
+| Questão | Decisão |
+| --- | --- |
+| Lock nas recusas do `dispatch` | As da integração rodam antes, sem o lock, porque só leem o commit base, o checkout Radiant e arquivos do usuário; as do núcleo continuam sob o lock |
+| Validator que não responde como prometido | Recusa `validator-failed`, sem efeito, para saída `2`, execução que falha, inclusive sem `python3`, ou saída fora do JSON esperado |
+| Base resolvida duas vezes | A integração resolve a base uma vez e entrega o commit ao núcleo; a ref pedida fica em `provenance.base_ref` |
