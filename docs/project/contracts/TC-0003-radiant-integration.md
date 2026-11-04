@@ -1,10 +1,13 @@
 # Radiant Task Contract - Demerzel - Incremento 5, integração Radiant
 
 **Contract ID:** `TC-0003`
-**Revisão do contrato:** 2, 2026-11-04. A revisão 1 recebeu a crítica do
+**Revisão do contrato:** 3, 2026-11-04. A revisão 1 recebeu a crítica do
 Codex em `gpt-6-astra`, papel `radiant-grill`: oito objeções, todas aceitas
-pelo owner e aplicadas aqui e na Spec 0.12, antes de qualquer execução
-([crítica](../verification/2026-11-04-tc-0003-grill.md))
+pelo owner e aplicadas na revisão 2 e na Spec 0.13, antes de qualquer execução
+([crítica](../verification/2026-11-04-tc-0003-grill.md)). A revisão 3 segue o
+pin para `9612a8c`, a tradução do Radiant para o inglês
+([faelplg/radiant#27](https://github.com/faelplg/radiant/pull/27)), e confere
+de novo as saídas dos validators nesse pin
 **Project:** `demerzel`
 **Iteration:** Plan 0.4, incremento 5
 **Status:** `READY`
@@ -19,7 +22,7 @@ temporários, com backend falso ou herdr falso, e o Radiant só é lido
 **Capability:** `default`
 **Engineering Baseline:** `Radiant Engineering Baseline v0.1`
 **Engineering Profile:** `none`
-**Referência Radiant:** `aea22d44868492da82adce25b4c371bfc234902c`, o pin do
+**Referência Radiant:** `9612a8cd5396a1d77776faf462dc48c8bd9d734a`, o pin do
 `.radiant.json`
 **Commit de entrada do Build:** o commit do `main` em que o `ACTIVE.md` passa
 a apontar para este contrato, gravado no relatório antes da primeira edição
@@ -37,7 +40,7 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
 **Source plan/spec:**
 
 - [Plan 0.4](../PLAN.md), incremento 5.
-- [Spec 0.12](../SPEC.md): seção 2.5, conferir o lançamento; seção 2.4, a
+- [Spec 0.13](../SPEC.md): seção 2.5, conferir o lançamento; seção 2.4, a
   parte `radiant`; seção 3 inteira; seção 4, `dispatch` e `resume`; seção 5,
   as recusas da integração; seção 6; seção 7, verificações 2, 3, 4, 5 (a
   parte nova da revisão 0.10) e 6.
@@ -58,7 +61,7 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
 
 ## 3. Inputs
 
-- `docs/project/SPEC.md` (revisão 0.12) e `docs/project/PLAN.md` (0.4).
+- `docs/project/SPEC.md` (revisão 0.13) e `docs/project/PLAN.md` (0.4).
 - O núcleo em `src/core/` e o backend herdr em `src/herdr/`, com a
   pós-condição do Claude Code hoje dentro de `launch` em
   `src/herdr/backend.ts`.
@@ -66,21 +69,24 @@ a apontar para este contrato, gravado no relatório antes da primeira edição
   `validators/check_project.py`, `validators/check_dispatch.py`,
   `adapters/<harness>/capabilities.json`, `adapters/<harness>/provides.json`
   e `skills/radiant-delegation/agents.json`.
-- Conferido pelo orquestrador em 2026-11-04, ao preparar este contrato, no
-  pin `aea22d4`, com `python3` do sistema:
+- Conferido pelo orquestrador em 2026-11-04, no pin `9612a8c`, com
+  `python3` do sistema e `PYTHONDONTWRITEBYTECODE=1`. A primeira conferência,
+  no pin `aea22d4`, deu os mesmos códigos de saída e formatos, com as
+  mensagens em português:
   - `check_project.py <raiz>` deste repositório sai com `0` e imprime
-    `PASS: Radiant aea22d4...; pin e paths conferidos.` no stdout; sem
+    `PASS: Radiant 9612a8c...; pin and paths checked. Task authorization is
+    separate.` no stdout; sem
     `.radiant.json`, sai com `1` e imprime uma linha `HOLD:` no stderr;
   - `check_dispatch.py routing` com o `routing.example.json` do Radiant em
     `$XDG_CONFIG_HOME/radiant/routing.json` sai com `0` e imprime o JSON das
     regras; com `default: [{"harness": "opencode"}]`, sai com `1` e imprime
-    `{"errors": ["default: harness sem adapter 'opencode'"]}`;
+    `{"errors": ["default: harness without an adapter 'opencode'"]}`;
   - `check_dispatch.py units -`, com um bloco `radiant-units` válido na
     entrada padrão, sai com `0` e imprime `{"units": [...]}` com `id`,
     `role`, `requires`, `objective`, `writes`, `depends_on` e `done_when`,
     sem completar `capability` ausente com o padrão do papel; com um papel
     desconhecido, sai com `1` e o erro repete o valor do campo, por exemplo
-    `perfil desconhecido 'MARCADOR'`;
+    `TC-0025.1: unknown profile 'MARCADOR'`;
   - os adapters `claude-code` e `codex` existem; `capabilities.json` mapeia
     `deep`, `standard` e `light` para IDs completos; o `provides.json` do
     `claude-code` é `{"provides": []}`;
@@ -255,7 +261,7 @@ Integração Radiant (outputs 2 e 3):
   `radiant_revision` ou com outro valor é `pin-mismatch`. A tarefa entregue ao núcleo leva
   esse commit como `base`, e a ref pedida vai em `provenance` como
   `base_ref`, para que o núcleo lance exatamente o commit que a integração
-  validou (Spec 0.11).
+  validou (Spec 0.12).
 - [ ] I4. Contrato (Spec 3, item 4): o prefixo do ID localiza
   `TC-NNNN-*.md` no diretório `contracts` do `.radiant.json` do commit base,
   lido do commit base; nenhum ou mais de um é `contract-not-found`, e também
@@ -297,7 +303,7 @@ Integração Radiant (outputs 2 e 3):
 - [ ] I13. Toda recusa da integração sai com `2` e não cria nem muda nada:
   nenhum arquivo de tarefa, branch, worktree ou chamada de efeito no backend.
   As recusas da integração rodam antes do `dispatch` do núcleo, sem o lock
-  (Spec 0.11).
+  (Spec 0.12).
 - [ ] I14. CLI `dispatch` (Spec 4): `0`, `1` e `2` como a Spec define, com
   `--json` no envelope do núcleo e texto curto com ID, ciclo de vida,
   `request_sent`, harness, modelo e regra. Argumento desconhecido ou faltando
