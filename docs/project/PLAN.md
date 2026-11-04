@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.3, 2026-10-31
-Spec: [revisão 0.9](SPEC.md)
+Revisão do Plan: 0.4, 2026-11-04
+Spec: [revisão 0.10](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
@@ -15,7 +15,9 @@ A revisão 0.2 incorpora a crítica adversarial do Plan 0.1, feita pelo Codex
 em `gpt-6-astra` no papel `radiant-grill`, em 2026-10-30: sete objeções, todas
 aceitas pelo owner. Duas delas corrigiram a Spec, que foi para a revisão 0.3.
 A revisão 0.3 do Plan fecha o incremento 1 e acompanha a Spec 0.4, que mudou
-a criação do worktree do Claude Code e tirou a confiança do Demerzel.
+a criação do worktree do Claude Code e tirou a confiança do Demerzel. A
+revisão 0.4 acompanha a Spec 0.10, que resolve o achado P1 do review do
+PR #16 antes do incremento 5.
 
 ## Feito
 
@@ -35,15 +37,13 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-5. **Integração Radiant.** Contrato. Antes do `dispatch` entrar no CLI, uma
-   revisão da Spec resolve o achado P1 do review do PR #16: hoje a
-   recuperação da seção 2.3 leva a `launched` uma tarefa do Claude Code cuja
-   pós-condição de lançamento não foi conferida, e o `resume` envia o pedido
-   sem conferir o worktree, contra a seção 2.5. A direção proposta é o
-   `resume` conferir cwd, branch e commit base antes de enviar; o contrato
-   inclui a correção, com teste e quebra proposital, e o detalhe fica no
+5. **Integração Radiant.** Contrato. Antes do `dispatch` entrar no CLI, o
+   contrato corrige o achado P1 do review do PR #16 como a Spec 0.10 decide:
+   conferir o lançamento vira operação do backend, e o `resume` confere cwd,
+   branch e commit base logo antes de enviar, com teste e quebra proposital.
+   Evidência: a parte nova da verificação 5. O detalhe do achado fica no
    [relatório do TC-0002](verification/2026-10-31-tc-0002-herdr.md).
-   `src/radiant/` com projeto, gate de pin,
+   Depois, `src/radiant/` com projeto, gate de pin,
    base, contrato do commit base, `check_dispatch.py`, roteamento e recusas da
    integração. Evidência: verificação 6, a parte da integração das
    verificações 3 e 4 (cada recusa da integração, inclusive

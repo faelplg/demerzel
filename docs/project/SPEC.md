@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.9, 2026-10-31
+Revisão da Spec: 0.10, 2026-11-04
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -22,7 +22,7 @@ modo de criar o worktree, e a confiança passa a ser pré-requisito do owner.
 | Unidade | Item do bloco `radiant-units` de um Task Contract. A integração a transforma em tarefa. |
 | Projeto | Repositório Git de onde o orquestrador chama o Demerzel, identificado pelo checkout principal. |
 | Registro | Estado do Demerzel por projeto, em `$XDG_STATE_HOME/demerzel/`. |
-| Backend | Superfície própria do Demerzel para criar worktree, abrir sessão, iniciar agente, enviar pedido, ler estado e encerrar. O herdr é a primeira implementação. |
+| Backend | Superfície própria do Demerzel para criar worktree, abrir sessão, iniciar agente, conferir o lançamento, enviar pedido, ler estado e encerrar. O herdr é a primeira implementação. |
 | Retorno | Arquivo que a sessão despachada grava num path fixo do worktree. Para unidades Radiant, o Completion report. |
 
 ## 2. Núcleo
@@ -134,7 +134,9 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
     workspace pelo ID gravado ou, sem ele, pelo label, com a aba e o pane
     dele, e o agente pelo nome, e grava em `created` o que existe. Com o agente vivo, a tarefa vai para `launched`, com
     `request_sent: unknown` se `send_started_at` foi gravado e `false` se não;
-    sem agente, para `launch-failed`;
+    sem agente, para `launch-failed`. A recuperação não confere a
+    pós-condição de lançamento da seção 2.5: quem confere é o `resume`, logo
+    antes de enviar, para toda tarefa, recuperada ou não;
   - nada é relançado nem reenviado sozinho.
 
 Ciclo de vida gravado:
@@ -143,7 +145,7 @@ Ciclo de vida gravado:
 | --- | --- |
 | `recorded` | Decisão gravada, nenhum efeito ainda |
 | `launching` | Primeiro efeito iniciado |
-| `launch-failed` | Falha depois do primeiro efeito; `created` lista o que existe |
+| `launch-failed` | Falha depois do primeiro efeito, ou pós-condição que não confere no `resume`; `created` lista o que existe |
 | `launched` | Agente iniciado; `request_sent` é `true`, `false` ou `unknown` |
 | `collected` | Retorno lido por `collect`, com digest |
 | `closed` | Encerrado por `close` |
@@ -218,6 +220,7 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 | Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <label> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
 | Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <label> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args>`. No Codex, `<args>` são modelo e esforço. No Claude Code, vêm antes `--worktree <nome> --settings <hook>`, descritos abaixo. |
+| Conferir o lançamento, Claude Code | `herdr agent get <nome>`, com o `foreground_cwd` do próprio agente, e `git -C <projeto> rev-parse --verify refs/heads/<branch>`. No Codex não há pós-condição e a conferência passa sem chamada. |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
 | Esperar | Ciclo próprio: a cada intervalo curto, lê `herdr api snapshot` e confere o arquivo de retorno, até cada tarefa chegar a um estado de parada ou o timeout expirar. `herdr agent wait` não serve sozinho: não vê o arquivo de retorno e, sem `--until`, só volta em `idle`, `done` ou `blocked`. |
@@ -251,6 +254,15 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   `created` listando o que existe. Assim um hook `WorktreeCreate` ou um
   `disableAllHooks` do próprio projeto, que se combinam com o `--settings` de
   modos que o Demerzel não conferiu, não passam despercebidos.
+- A mesma pós-condição é uma operação própria do backend, usada pelo
+  `dispatch` depois de `agent start` e pelo `resume` logo antes de enviar o
+  pedido. O `resume` confere sempre, mesmo que o `dispatch` já tenha
+  conferido, porque a tarefa pode ter chegado a `launched` pela recuperação
+  da seção 2.3, sem conferência, e porque o worktree pode ter mudado enquanto
+  o humano liberava o startup. A conferência só lê: não cria, não muda e não
+  remove nada. Se ela não confere no `resume`, a tarefa vai de `launched`
+  para `launch-failed`, com o motivo e `created` como estava, e o pedido não
+  sai.
 - Confiança: o backend nunca passa `--trust-repository`, que no herdr 0.9.0
   não mudou a decisão de nenhum dos dois CLIs. O owner confia uma vez o
   checkout principal do projeto em cada CLI, como na autenticação inicial.
@@ -284,8 +296,8 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   no startup bloqueado: se cwd, branch e commit base conferem, a tarefa fica
   `launched` e bloqueada; se não conferem, inclusive porque o hook ainda não
   criou o worktree, vai para `launch-failed`, com `created` listando o que
-  existe. Assim o `resume` nunca envia o pedido a um worktree que não foi
-  conferido.
+  existe. O `resume` nunca envia o pedido a um worktree que não foi
+  conferido, porque confere de novo antes de enviar.
 - `agent_blocked` no envio, isto é, agente já bloqueado antes de receber o
   pedido, deixa `request_sent: false`.
 - `agent_prompt_stalled` ou timeout no envio deixam `request_sent: unknown`. O
@@ -400,8 +412,16 @@ Envia o pedido inicial gravado de uma tarefa `launched` com
 `request_sent: false`, depois que o humano liberou o startup na aba. Só esse
 pedido: o texto já está no registro e não é montado de novo.
 
+Ordem, sob o lock: recusas da matriz; com o agente ainda `blocked`, sai com
+`1` sem conferir nem enviar; senão, confere o lançamento (seção 2.5) e só
+então grava `send_started_at` e envia. Uma falha do backend durante a
+conferência é `backend-unavailable`, sem efeito, porque nada foi gravado
+ainda. Uma conferência que não confere leva a tarefa a `launch-failed` e o
+pedido não sai.
+
 - `0`: pedido enviado.
-- `1`: agente ainda `blocked` ou envio sem confirmação.
+- `1`: agente ainda `blocked`, pós-condição que não confere
+  (`launch-failed`) ou envio sem confirmação.
 - `2`: recusa da matriz acima.
 
 ### `demerzel status [<id>...] [--all] [--json]`
@@ -552,7 +572,14 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    nomes de agente distintos para IDs que só diferem em caixa ou pontuação,
    `wait` voltando quando o retorno aparece com o agente ainda `working` e
    quando o agente passa a `unknown`, e `close` recusado nesse mesmo cenário
-   de retorno presente com agente `working`.
+   de retorno presente com agente `working`. No `resume` de uma tarefa do
+   Claude Code, recuperada de `launching` com o agente vivo e também vinda
+   de um startup bloqueado: pós-condição que confere envia o pedido;
+   pós-condição que não confere leva a `launch-failed` sem chamada de envio;
+   falha do backend na conferência é `backend-unavailable` sem gravação; e
+   agente ainda `blocked` sai com `1` sem conferir. No backend herdr, a
+   conferência do `resume` acusa cwd fora do worktree, branch ausente e
+   branch fora do commit base, com o herdr falso.
 6. **Integração Radiant.** Consumidor de fixture contra o checkout Radiant no
    pin: localização do contrato no commit base, recusa de base com pin
    diferente do checkout validado, validação por `check_dispatch.py`,
@@ -662,3 +689,18 @@ Revisão 0.9, 2026-10-31, depois da crítica do TC-0002 pelo Codex em
 | Startup bloqueado do Claude Code | A pós-condição vale também no startup bloqueado: conferida, `launched` e bloqueada; não conferida, `launch-failed` |
 | Esforço não conferido | Só níveis conferidos e registrados no Plan; os outros são omitidos com motivo antes do primeiro efeito |
 | Falha do backend no meio de um comando | Antes do primeiro efeito, `backend-unavailable`; depois, grava o que sabe e sai com `1`; a mensagem traz o comando e o erro do backend |
+
+Revisão 0.10, 2026-11-04, a partir do achado P1 do review do Codex no
+[PR #16](https://github.com/faelplg/demerzel/pull/16), aceito e adiado pelo
+owner em 2026-11-02 e registrado no
+[relatório do TC-0002](verification/2026-10-31-tc-0002-herdr.md). A
+recuperação levava a `launched` uma tarefa do Claude Code cuja pós-condição
+não foi conferida, e o `resume` enviava o pedido sem conferir. Valem quando o
+owner aprovar o PR desta revisão:
+
+| Questão | Decisão |
+| --- | --- |
+| Onde a pós-condição protege o envio | No `resume`, logo antes de enviar, para toda tarefa; a recuperação continua sem conferir. Alternativa descartada: gravar a conferência do `dispatch` e exigi-la na recuperação, que não cobre um worktree mudado depois do startup |
+| Superfície do backend | Conferir o lançamento vira operação própria, a mesma no `dispatch` e no `resume`; no Codex passa sem chamada |
+| Pós-condição que não confere no `resume` | `launched` vai para `launch-failed`, com o motivo, e sai com `1`; o pedido não sai |
+| Agente ainda `blocked` no `resume` | Sai com `1` sem conferir; a conferência fica para o `resume` que vai enviar |
