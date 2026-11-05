@@ -1,8 +1,9 @@
-import { collect, close, resume, status, wait, type Envelope } from "../core/index.ts";
+import { collect, close, dispatch, resume, status, wait, type Envelope } from "../core/index.ts";
 import { loadConfig } from "../core/config.ts";
 import type { Env } from "../core/env.ts";
 import { HerdrBackend } from "../herdr/backend.ts";
 import { parseHerdrConfig } from "../herdr/config.ts";
+import { prepareDispatch } from "../radiant/index.ts";
 import { parse, USAGE } from "./args.ts";
 import { formatText } from "./text.ts";
 
@@ -17,7 +18,9 @@ function render(code: 0 | 1 | 2, envelope: Envelope, json: boolean): CliOutcome 
   return { code, ...formatText(envelope) };
 }
 
-// The five commands that take an ID, over the core and the herdr backend.
+// The commands over the core and the herdr backend; dispatch goes through
+// the Radiant integration first, whose refusals run before the core's and
+// without the project lock (Spec 4).
 export async function runCommand(argv: readonly string[], env: Env, cwd: string): Promise<CliOutcome> {
   const parsed = parse(argv);
   if (!parsed.ok) {
@@ -33,6 +36,11 @@ export async function runCommand(argv: readonly string[], env: Env, cwd: string)
 
   let outcome;
   switch (p.command) {
+    case "dispatch": {
+      const prepared = prepareDispatch({ unitId: p.unitId, rule: p.rule, base: p.base, humanApproved: p.humanApproved }, { ...ctx, config: config.config });
+      outcome = prepared.ok ? await dispatch({ task: prepared.task, humanApproved: p.humanApproved }, ctx) : prepared.outcome;
+      break;
+    }
     case "resume":
       outcome = await resume(p.id, ctx);
       break;

@@ -28,9 +28,9 @@ describe("demerzel entrypoint", () => {
   });
 
   // Protects: H11, wrong usage is a refusal with exit 2 that shows the
-  // usage, and dispatch stays out of the CLI until increment 5. Fails if a
-  // bad argument is accepted or the usage disappears.
-  test.each([[[]], [["--help"]], [["dispatch", "TC-0001.1"]], [["status", "--bogus"]], [["wait"]], [["resume"]], [["wait", "x", "--timeout", "abc"]], [["close", "a", "b"]]])(
+  // usage, now with dispatch in it (TC-0003). Fails if a bad argument is
+  // accepted or the usage disappears.
+  test.each([[[]], [["--help"]], [["dispatch"]], [["dispatch", "TC-0001.1", "--rule"]], [["status", "--bogus"]], [["wait"]], [["resume"]], [["wait", "x", "--timeout", "abc"]], [["close", "a", "b"]]])(
     "refuses %j with exit 2 and the usage",
     async (args) => {
       const r = await run(args);
@@ -38,16 +38,17 @@ describe("demerzel entrypoint", () => {
       expect(r.stdout).toBe("");
       expect(r.stderr).toContain("recusa usage-invalid");
       expect(r.stderr).toContain("demerzel status");
+      expect(r.stderr).toContain("demerzel dispatch <unit-id>");
     },
   );
 
   test("usage refusal in --json", async () => {
-    const r = await run(["dispatch", "TC-0001.1", "--json"]);
+    const r = await run(["dispatch", "--json"]);
     expect(r.code).toBe(2);
     const envelope = JSON.parse(r.stdout);
     expect(envelope.ok).toBe(false);
     expect(envelope.refusal.code).toBe("usage-invalid");
-    expect(envelope.refusal.message).toContain("incremento 5");
+    expect(envelope.refusal.message).toContain("dispatch recebe exatamente um ID de unidade");
   });
 });
 

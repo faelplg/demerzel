@@ -1,10 +1,14 @@
+import { BackendError, type CheckOutcome } from "../backend.ts";
 import { entry } from "../registry.ts";
-import { agentState, backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, transition, view, viewAfterEffect, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import { agentState, backendErrorDetail, backendUnavailable, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, transition, view, viewAfterEffect, wrongLifecycle, type Context, type Outcome } from "./common.ts";
 
 const C = "resume";
 
 // Spec 4: sends the recorded initial request of a `launched` task whose
-// startup was blocked. The text is not built again.
+// startup was blocked. The text is not built again. Revision 0.10: right
+// before sending, the launch is checked again (Spec 2.5), because the task
+// may have reached `launched` through a recovery that does not check, and
+// the worktree may have changed while the human freed the startup.
 export async function resume(id: string, ctx: Context): Promise<Outcome> {
   const session = open(C, ctx);
   if (isOutcome(session)) return session;
@@ -26,8 +30,34 @@ export async function resume(id: string, ctx: Context): Promise<Outcome> {
     }
     const agent = agentState(record, snapshot);
     if (agent === "lost") return refuse(C, "task-lost", `o agente da tarefa ${id} não está no backend`, "Feche a tarefa; o Demerzel nunca relança sozinho.");
+    if (agent === "blocked") {
+      recovery.publish();
+      return done(C, 1, [view(record, snapshot)]);
+    }
+
+    // The check only reads, so a backend failure here is a refusal without
+    // effect: nothing is written, not even the recovery of other tasks.
+    let check: CheckOutcome;
+    try {
+      check = await ctx.backend.verifyLaunch({
+        agentName: record.agent_name,
+        harness: record.harness,
+        branch: record.branch,
+        baseCommit: record.base.commit,
+        worktreePath: record.worktree,
+        mainCheckout: project.mainCheckout,
+      });
+    } catch (error) {
+      if (error instanceof BackendError) return backendUnavailable(C, error);
+      throw error;
+    }
     recovery.publish();
-    if (agent === "blocked") return done(C, 1, [view(record, snapshot)]);
+    if (!check.ok) {
+      transition(registry, record, "launch-failed", { by: C, reason: check.reason }, ctx.trace);
+      const v = view(record, snapshot);
+      v.backend_error = check.reason;
+      return done(C, 1, [v]);
+    }
 
     // Until the outcome is known the request may have arrived: an
     // interruption here must never let a later resume send it again.

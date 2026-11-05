@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from "node:fs";
-import { BackendError, type Backend, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus } from "../core/backend.ts";
+import { BackendError, type Backend, type CheckOutcome, type LaunchCheck, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus } from "../core/backend.ts";
 import type { Env } from "../core/env.ts";
 import { git } from "../core/git.ts";
 import type { BackendIds, Created } from "../core/types.ts";
@@ -398,39 +398,70 @@ export class HerdrBackend implements Backend {
     if (started.kind === "failed") return failed(started.reason);
 
     // Spec 2.5, revision 0.9: the postcondition holds also on a blocked
-    // startup, so resume never sends to a worktree nobody checked.
+    // startup, so resume never sends to a worktree nobody checked. At launch
+    // a failed read of the agent is one more reason the launch failed.
     report({ kind: "agent", name: plan.agentName });
-    const { cwd, error } = await this.agentCwd(plan.agentName, plan.worktreePath);
-    const commit = branchCommit();
-    const problems: string[] = [];
-    if (!sameDir(cwd, plan.worktreePath)) problems.push(`cwd do agente ${cwd ?? "desconhecido"} não é o worktree ${plan.worktreePath}${error === null ? "" : ` (${error})`}`);
-    if (commit === null) problems.push(`branch ${plan.branch} não existe`);
-    else if (commit !== plan.baseCommit) problems.push(`branch ${plan.branch} aponta para ${commit}, não para o commit base ${plan.baseCommit}`);
+    const { problems } = await this.postcondition(plan);
     if (problems.length > 0) return failed(`pós-condição do lançamento no Claude Code: ${problems.join("; ")}`);
     return { kind: started.kind, ids };
+  }
+
+  // Spec 2.5, revision 0.10: the same postcondition as its own operation,
+  // which resume runs right before it sends. Codex has none and holds
+  // without a call. A failed read of the agent is a backend failure, never a
+  // mismatch, so resume refuses it without writing anything.
+  async verifyLaunch(check: LaunchCheck): Promise<CheckOutcome> {
+    if (check.harness !== "claude-code") return { ok: true };
+    const { problems, error } = await this.postcondition(check);
+    if (error !== null) throw error;
+    return problems.length === 0 ? { ok: true } : { ok: false, reason: `pós-condição do lançamento no Claude Code: ${problems.join("; ")}` };
+  }
+
+  // Spec 2.5, revision 0.12: the agent's own foreground cwd is the worktree,
+  // the branch exists at the base commit, and the worktree HEAD is that
+  // branch at that commit, not another branch nor a detached HEAD. It only
+  // reads: herdr agent get, then Git in the project and in the worktree.
+  private async postcondition(check: LaunchCheck): Promise<{ problems: string[]; error: BackendError | null }> {
+    const { cwd, error } = await this.agentCwd(check.agentName, check.worktreePath);
+    const problems: string[] = [];
+    if (!sameDir(cwd, check.worktreePath)) problems.push(`cwd do agente ${cwd ?? "desconhecido"} não é o worktree ${check.worktreePath}${error === null ? "" : ` (${error.command}: ${error.detail})`}`);
+    const branch = git(check.mainCheckout, ["rev-parse", "--verify", "--quiet", `refs/heads/${check.branch}`], this.env);
+    if (branch.code !== 0) problems.push(`branch ${check.branch} não existe`);
+    else if (branch.stdout !== check.baseCommit) problems.push(`branch ${check.branch} aponta para ${branch.stdout}, não para o commit base ${check.baseCommit}`);
+    if (!existsSync(check.worktreePath)) {
+      problems.push(`worktree ${check.worktreePath} não existe`);
+    } else {
+      const head = git(check.mainCheckout, ["-C", check.worktreePath, "symbolic-ref", "--quiet", "HEAD"], this.env);
+      if (head.code !== 0) problems.push(`HEAD do worktree está destacado, não no branch ${check.branch}`);
+      else if (head.stdout !== `refs/heads/${check.branch}`) problems.push(`HEAD do worktree está em ${head.stdout}, não em refs/heads/${check.branch}`);
+      const at = git(check.mainCheckout, ["-C", check.worktreePath, "rev-parse", "--verify", "--quiet", "HEAD"], this.env);
+      if (at.code !== 0) problems.push("HEAD do worktree sem commit");
+      else if (at.stdout !== check.baseCommit) problems.push(`HEAD do worktree aponta para ${at.stdout}, não para o commit base ${check.baseCommit}`);
+    }
+    return { problems, error };
   }
 
   // The agent's foreground cwd, read a few times while Claude Code moves into
   // the worktree, with the herdr error of the last read, if it failed, so
   // the failure names the command and the error (Spec 2.3, H13).
-  private async agentCwd(name: string, expected: string): Promise<{ cwd: string | null; error: string | null }> {
+  private async agentCwd(name: string, expected: string): Promise<{ cwd: string | null; error: BackendError | null }> {
     const deadline = Date.now() + (this.options.postconditionWaitMs ?? 3_000);
     for (;;) {
       let cwd: string | null = null;
-      let error: string | null = null;
+      let error: BackendError | null = null;
       try {
         const got = this.herdr.run(["agent", "get", name]);
         // Only an answer about this agent tells where it is: another
         // agent's cwd, or an empty one, never satisfies the postcondition.
-        if (!got.ok) error = `herdr agent get: ${got.code}: ${got.message}`;
-        else if (text(got.result, "agent", "name") !== name) error = "herdr agent get: resposta sem o nome deste agente";
+        if (!got.ok) error = new BackendError("herdr agent get", `${got.code}: ${got.message}`);
+        else if (text(got.result, "agent", "name") !== name) error = new BackendError("herdr agent get", "resposta sem o nome deste agente");
         else {
           cwd = ident(got.result, "agent", "foreground_cwd");
-          if (cwd === null) error = "herdr agent get: resposta sem agent.foreground_cwd";
+          if (cwd === null) error = new BackendError("herdr agent get", "resposta sem agent.foreground_cwd");
         }
       } catch (e) {
         if (!(e instanceof BackendError)) throw e;
-        error = `${e.command}: ${e.detail}`;
+        error = e;
       }
       if (sameDir(cwd, expected) || Date.now() >= deadline) return { cwd, error };
       await Bun.sleep(200);

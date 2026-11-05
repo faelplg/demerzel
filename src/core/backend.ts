@@ -64,6 +64,14 @@ export type LaunchOutcome =
 
 export type SendOutcome = "sent" | "not-ready" | "unknown";
 
+// Spec 2.5, revision 0.10: what the launch check compares, taken from the
+// plan at launch and from the record at resume.
+export type LaunchCheck = Pick<LaunchPlan, "agentName" | "harness" | "branch" | "baseCommit" | "worktreePath" | "mainCheckout">;
+
+// The check only reads. A backend failure while reading is a BackendError,
+// never a mismatch, so resume can refuse it without effect.
+export type CheckOutcome = { ok: true } | { ok: false; reason: string };
+
 export interface Backend {
   supportsHarness(harness: string): boolean;
   probe(): Promise<Probe>;
@@ -73,6 +81,9 @@ export interface Backend {
   // core records it before the backend moves on. The order of resources is
   // the backend's: worktree before session, or worktree when the agent starts.
   launch(plan: LaunchPlan, preparation: Preparation, onCreated: (resource: Created) => void): Promise<LaunchOutcome>;
+  // The launch postcondition of Spec 2.5, used by launch after agent start
+  // and by resume right before it sends.
+  verifyLaunch(check: LaunchCheck): Promise<CheckOutcome>;
   send(agentName: string, text: string): Promise<SendOutcome>;
   closeWorkspace(workspaceId: string): Promise<void>;
 }

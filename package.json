@@ -13,7 +13,7 @@
     "test": "bun test",
     "test:core": "bun test/core/run-without-python.ts",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun run test:core && bun test test/herdr test/cli.test.ts",
+    "check": "bun run typecheck && bun run test:core && bun test test/herdr test/cli.test.ts test/radiant",
     "scenario:herdr": "bun test/herdr/scenario.ts",
     "smoke:herdr": "bun test/herdr/smoke.ts"
   },

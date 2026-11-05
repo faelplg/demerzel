@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import type { Backend, LaunchOutcome, LaunchPlan, Preparation, Probe, SendOutcome, Snapshot, SnapshotAgentStatus } from "./backend.ts";
+import { BackendError, type Backend, type CheckOutcome, type LaunchCheck, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus } from "./backend.ts";
 import type { Env } from "./env.ts";
 import { git } from "./git.ts";
 import type { BackendIds, Created } from "./types.ts";
@@ -24,6 +24,11 @@ export type FakeScript = {
   startup: "ready" | "blocked";
   failAfter: EffectPoint | null;
   postcondition: "ok" | "fail";
+  // The launch check of Spec 2.5, revision 0.10, for harnesses whose
+  // worktree is created when the agent starts: it holds, does not hold, or
+  // the backend fails while reading. Harnesses whose worktree comes first
+  // have no postcondition and always hold, as in the herdr backend.
+  verify: "ok" | "fail" | "error";
   send: SendOutcome;
   statusAfterSend: SnapshotAgentStatus;
 };
@@ -37,6 +42,7 @@ export const defaultScript: FakeScript = {
   startup: "ready",
   failAfter: null,
   postcondition: "ok",
+  verify: "ok",
   send: "sent",
   statusAfterSend: "working",
 };
@@ -215,6 +221,15 @@ export class FakeBackend implements Backend {
       if (script.failAfter === "agent") return failed("falha injetada depois do agente");
     }
     return { kind: script.startup === "blocked" ? "blocked" : "ready", ids };
+  }
+
+  async verifyLaunch(check: LaunchCheck): Promise<CheckOutcome> {
+    const { script } = this.load();
+    this.log("verifyLaunch", false, { ...check });
+    if (script.modes[check.harness] !== "worktree-on-start") return { ok: true };
+    if (script.verify === "error") throw new BackendError("fake verifyLaunch", "falha injetada na conferência");
+    if (script.verify === "fail") return { ok: false, reason: "pós-condição do lançamento não confere: cwd do agente fora do worktree" };
+    return { ok: true };
   }
 
   async send(agentName: string, text: string): Promise<SendOutcome> {

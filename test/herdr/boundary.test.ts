@@ -33,8 +33,11 @@ describe("module boundaries", () => {
 
   // Protects: `src/herdr/run.ts` is the single place that runs the herdr
   // executable (finding S4 of the sixth verification); Git runs only from
-  // `src/core/git.ts`. Fails if any other file of src/ spawns a process.
-  test("processes run only from src/herdr/run.ts and src/core/git.ts", () => {
-    expect(offenders(SRC, /\bspawn(?:Sync)?\s*\(|child_process/).filter((path) => path !== join("herdr", "run.ts") && path !== join("core", "git.ts"))).toEqual([]);
+  // `src/core/git.ts`; and, by the owner's amendment to TC-0003, python3 runs
+  // only from `src/radiant/python.ts`, for the Radiant validators. Fails if
+  // any other file of src/ spawns a process.
+  test("processes run only from src/herdr/run.ts, src/core/git.ts and src/radiant/python.ts", () => {
+    const allowed = [join("herdr", "run.ts"), join("core", "git.ts"), join("radiant", "python.ts")];
+    expect(offenders(SRC, /\bspawn(?:Sync)?\s*\(|child_process/).filter((path) => !allowed.includes(path))).toEqual([]);
   });
 });
