@@ -28,6 +28,7 @@ PR #16 antes do incremento 5.
 - 2, stack ([faelplg/demerzel#8](https://github.com/faelplg/demerzel/pull/8)): Bun 1.4.2, TypeScript 7.0.2 estrito, `bun run check` e o entrypoint que só responde `--version`.
 - 3, núcleo ([faelplg/demerzel#9](https://github.com/faelplg/demerzel/pull/9), [faelplg/demerzel#10](https://github.com/faelplg/demerzel/pull/10), [faelplg/demerzel#11](https://github.com/faelplg/demerzel/pull/11), [faelplg/demerzel#12](https://github.com/faelplg/demerzel/pull/12)): TC-0001 em DONE, com 142 testes do núcleo e quatro verificações independentes, três no Codex e a última, com PASS, no Antigravity.
 - 4, backend herdr e smoke ([faelplg/demerzel#13](https://github.com/faelplg/demerzel/pull/13), [faelplg/demerzel#14](https://github.com/faelplg/demerzel/pull/14), [faelplg/demerzel#15](https://github.com/faelplg/demerzel/pull/15), [faelplg/demerzel#16](https://github.com/faelplg/demerzel/pull/16)): TC-0002 em DONE, com o backend herdr, `resume`, `status`, `wait`, `collect` e `close` no CLI, o cenário contra o herdr real em 16/16 e o smoke com 0 de 5 intervenções no Claude Code e no Codex. Treze verificações independentes, doze no Codex com FAIL e a última, com PASS, no Antigravity; uma emenda do owner ao contrato mudou o `close` do núcleo.
+- 5, integração Radiant ([faelplg/demerzel#22](https://github.com/faelplg/demerzel/pull/22), [faelplg/demerzel#23](https://github.com/faelplg/demerzel/pull/23), [faelplg/demerzel#24](https://github.com/faelplg/demerzel/pull/24)): TC-0003 em DONE, com a correção do achado P1 no `resume`, `src/radiant/` e o `dispatch` no CLI, testados contra o Radiant real no pin, local e no CI. Duas verificações independentes no Codex: a primeira com FAIL e dois achados corrigidos, a segunda confirmando as correções; quatro decisões do owner sobre códigos de recusa entraram na Spec 0.14, e uma emenda do owner ao contrato aceitou `src/radiant/python.ts` no teste de fronteira de processos.
 
 ## Próximos
 
@@ -37,19 +38,6 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-5. **Integração Radiant.** Contrato. Antes do `dispatch` entrar no CLI, o
-   contrato corrige o achado P1 do review do PR #16 como a Spec 0.10 decide:
-   conferir o lançamento vira operação do backend, e o `resume` confere cwd,
-   branch e commit base logo antes de enviar, com teste e quebra proposital.
-   Evidência: a parte nova da verificação 5. O detalhe do achado fica no
-   [relatório do TC-0002](verification/2026-10-31-tc-0002-herdr.md).
-   Depois, `src/radiant/` com projeto, gate de pin,
-   base, contrato do commit base, `check_dispatch.py`, roteamento e recusas da
-   integração. Evidência: verificação 6, a parte da integração das
-   verificações 3 e 4 (cada recusa da integração, inclusive
-   `reports-not-ignored` e `approval-required`, com prova de nenhum efeito, e
-   nenhum marcador do contrato no pedido montado), e a verificação 2 ainda
-   passando.
 6. **Menor experimento.** Contrato no AIKM, não aqui. Um contrato real do
    AIKM com duas unidades independentes, uma para Claude Code e outra para
    Codex, despachadas pelo Demerzel e aceitas pelo orquestrador. Evidência:
