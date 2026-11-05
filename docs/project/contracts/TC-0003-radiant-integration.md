@@ -10,9 +10,12 @@ pin para `9612a8c`, a tradução do Radiant para o inglês
 de novo as saídas dos validators nesse pin
 **Project:** `demerzel`
 **Iteration:** Plan 0.4, incremento 5
-**Status:** `READY`
-**Lifecycle:** `active` desde 2026-11-05, por decisão do owner; o `ACTIVE.md`
-aponta para ele
+**Status:** `DONE`
+**Lifecycle:** `done` em 2026-11-05, depois da segunda verificação
+independente, com o Build em
+[faelplg/demerzel#23](https://github.com/faelplg/demerzel/pull/23) e a Spec
+0.14 em [faelplg/demerzel#24](https://github.com/faelplg/demerzel/pull/24);
+evidência em `docs/project/verification/2026-11-05-tc-0003-radiant.md`
 **Owner:** Fael (humano); Build por um agente no papel `radiant-dev`;
 orquestrador responsável pela crítica independente
 **Risk tier:** `2`. O `dispatch` passa a lançar harnesses com modelos pagos a
