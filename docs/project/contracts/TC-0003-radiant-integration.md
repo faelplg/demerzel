@@ -11,8 +11,8 @@ de novo as saídas dos validators nesse pin
 **Project:** `demerzel`
 **Iteration:** Plan 0.4, incremento 5
 **Status:** `READY`
-**Lifecycle:** `ready`. Proposta pronta não autoriza execução; o owner ativa
-apontando o `ACTIVE.md` para este contrato
+**Lifecycle:** `active` desde 2026-11-05, por decisão do owner; o `ACTIVE.md`
+aponta para ele
 **Owner:** Fael (humano); Build por um agente no papel `radiant-dev`;
 orquestrador responsável pela crítica independente
 **Risk tier:** `2`. O `dispatch` passa a lançar harnesses com modelos pagos a
