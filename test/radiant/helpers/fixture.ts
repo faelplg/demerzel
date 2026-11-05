@@ -138,13 +138,15 @@ export async function attempt(sb: Sandbox, be: FakeBackend, overrides: Partial<D
 
 // A python3 first on PATH that records each validator run and passes it to
 // the real python3, or, for one validator, answers outside its protocol.
-export type PythonMode = "pass" | "exit2" | "signal" | "garbage" | "exit1-no-hold" | "exit1-garbage";
+// "swap-after" runs the real validator and then copies `swap.from` over
+// `swap.to`, as when a file changes right after the gate read it.
+export type PythonMode = "pass" | "exit2" | "signal" | "garbage" | "exit1-no-hold" | "exit1-garbage" | "pass-no-revision" | "swap-after";
 
 export type Interposer = { env: Env; runs: () => string[]; bytecode: () => string[] };
 
 // `target` is a validator, or a validator and its subcommand, such as
 // "check_dispatch.py routing".
-export function interposePython(sb: Sandbox, mode: PythonMode = "pass", target = "check_project.py"): Interposer {
+export function interposePython(sb: Sandbox, mode: PythonMode = "pass", target = "check_project.py", swap?: { from: string; to: string }): Interposer {
   const real = Bun.which("python3");
   if (real === null) throw new Error("python3 não está no PATH");
   const bin = join(sb.root, "py-bin");
@@ -167,6 +169,8 @@ export function interposePython(sb: Sandbox, mode: PythonMode = "pass", target =
       '    garbage) echo "isto não é JSON"; exit 0 ;;',
       '    exit1-no-hold) echo "sem a linha esperada" >&2; exit 1 ;;',
       '    exit1-garbage) echo "isto não é JSON"; exit 1 ;;',
+      '    pass-no-revision) echo "PASS: tudo certo"; exit 0 ;;',
+      `    swap-after) ${JSON.stringify(real)} "$@"; result=$?; cp ${JSON.stringify(swap?.from ?? "")} ${JSON.stringify(swap?.to ?? "")}; exit "$result" ;;`,
       "  esac",
       "fi",
       `exec ${JSON.stringify(real)} "$@"`,

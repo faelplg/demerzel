@@ -5,7 +5,7 @@ import type { Outcome } from "../../src/core/index.ts";
 import { FakeBackend } from "../../src/core/fake-backend.ts";
 import { backend, sandbox, type Sandbox } from "../core/helpers/sandbox.ts";
 import { spawnChild } from "../core/helpers/processes.ts";
-import { attempt, commitAll, consumer, CONTRACT, contractText, DEFAULT_UNITS, effects, map, radiantFiles, radiantRoot, ready, ROUTING, writeConfig, writeRouting } from "./helpers/fixture.ts";
+import { attempt, commitAll, consumer, CONTRACT, contractText, DEFAULT_UNITS, effects, interposePython, map, radiantFiles, radiantRoot, ready, ROUTING, writeConfig, writeRouting } from "./helpers/fixture.ts";
 
 // TC-0003, I1 to I13 and verification 3, the integration's part: each
 // refusal exits 2 with the expected code and no effect, and runs before the
@@ -63,6 +63,10 @@ describe("configuration (I1)", () => {
     ["a relative root", { root: "radiant" }],
     ["a root that is not text", { root: 7 }],
     ["a prefix that is not text", { root: "/x", branch_prefix: 3 }],
+    // Finding 2 of the independent critique: null is a wrong type, not an
+    // absent key.
+    ["a null prefix", { root: "/x", branch_prefix: null }],
+    ["a null root", { root: null }],
   ])("config-invalid: %s", async (_, radiant) => {
     consumer(sb);
     writeConfig(sb, { schema: 1, radiant });
@@ -103,6 +107,23 @@ describe("pin gate and base (I2, I3)", () => {
     workingTree(".radiant.json", JSON.stringify(map({ radiant_revision: "0".repeat(40) })));
     const r = await refused("pin-mismatch", (be) => attempt(sb, be));
     expect(r.envelope.refusal?.message).toContain("HOLD: checkout revision differs from the pin");
+  });
+
+  // Protects: finding 1 of the independent critique, the base map is
+  // compared with the pin the gate printed, not with the caller map read
+  // again: a map swapped right after the gate cannot pass a base with an
+  // unvalidated pin. Fails if the integration reads the pin again.
+  test("pin-mismatch: the caller map swapped right after the gate", async () => {
+    ready(sb, root);
+    const other = JSON.stringify(map({ radiant_revision: "1".repeat(40) }));
+    workingTree(".radiant.json", other);
+    commitAll(sb, "base with another pin");
+    workingTree(".radiant.json", JSON.stringify(map()));
+    const replacement = join(sb.root, "outro-mapa.json");
+    writeFileSync(replacement, other);
+    const py = interposePython(sb, "swap-after", "check_project.py", { from: replacement, to: join(sb.repo, ".radiant.json") });
+    const r = await refused("pin-mismatch", (be) => attempt(sb, be, {}, { env: py.env }));
+    expect(r.envelope.refusal?.message).toContain("do commit base");
   });
 
   test("pin-mismatch: no .radiant.json in the caller checkout", async () => {

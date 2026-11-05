@@ -27,6 +27,7 @@ const cases: Array<[string, PythonMode, string, string]> = [
   ["the gate ends by a signal", "signal", "check_project.py", "check_project.py"],
   ["the gate exits 1 without a HOLD line", "exit1-no-hold", "check_project.py", "check_project.py"],
   ["the gate exits 0 without a PASS line", "garbage", "check_project.py", "check_project.py"],
+  ["the gate exits 0 with a PASS line without the revision", "pass-no-revision", "check_project.py", "check_project.py"],
   ["units exits 2", "exit2", "check_dispatch.py units", "check_dispatch.py units -"],
   ["units ends by a signal", "signal", "check_dispatch.py units", "check_dispatch.py units -"],
   ["units exits 0 with invalid JSON", "garbage", "check_dispatch.py units", "check_dispatch.py units -"],

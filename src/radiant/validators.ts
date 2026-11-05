@@ -53,12 +53,21 @@ function failed(message: string): Failure {
   return { code: "validator-failed", message, next: FIX_RADIANT };
 }
 
+// The PASS line of the pinned revision names the pin it checked, as in
+// `PASS: Radiant <commit>; pin and paths checked.` That commit is the pin the
+// gate validated, so the base map is compared with it and the caller map is
+// never read again after the gate (finding 1 of the independent critique).
+const PASS = /^PASS: Radiant ([0-9a-f]{40}|[0-9a-f]{64});/;
+
 // Spec 3, item 2: `0` with a `PASS:` line on stdout passes; `1` with a
 // `HOLD:` line on stderr is pin-mismatch, with that line in the message.
-export function checkProject(root: string, project: string, env: Env): { ok: true } | { ok: false; failure: Failure } {
+export function checkProject(root: string, project: string, env: Env): { ok: true; pin: string } | { ok: false; failure: Failure } {
   const what = `check_project.py ${project}`;
   const run = runPython(script(root, "check_project.py"), [project], { env, cwd: project });
-  if (run.kind === "exited" && run.code === 0 && lines(run.stdout).some((line) => line.startsWith("PASS:"))) return { ok: true };
+  if (run.kind === "exited" && run.code === 0) {
+    const pin = lines(run.stdout).map((line) => PASS.exec(line)?.[1]).find((found) => found !== undefined);
+    if (pin !== undefined) return { ok: true, pin };
+  }
   if (run.kind === "exited" && run.code === 1) {
     const hold = lines(run.stderr).find((line) => line.startsWith("HOLD:"));
     if (hold !== undefined) {

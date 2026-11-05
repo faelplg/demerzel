@@ -20,7 +20,9 @@ export function parseRadiantConfig(block: Record<string, unknown> | null): Radia
   if (root === undefined) return { ok: false, code: "radiant-root-missing", message: "a configuração não tem radiant.root, o checkout Radiant da máquina" };
   // The root becomes the absolute radiant-root pointer of the request.
   if (typeof root !== "string" || !isAbsolute(root) || /[\n\r\0]/.test(root)) return invalid("radiant.root precisa ser um path absoluto");
-  const prefix = block?.["branch_prefix"] ?? "radiant/";
+  // Only an absent key takes the default: null is a wrong type (finding 2
+  // of the independent critique).
+  const prefix = block !== null && "branch_prefix" in block ? block["branch_prefix"] : "radiant/";
   if (typeof prefix !== "string") return invalid("radiant.branch_prefix precisa ser texto");
   return { ok: true, config: { root, branchPrefix: prefix } };
 }

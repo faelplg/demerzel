@@ -126,6 +126,16 @@ describe("a dispatched unit (I3, I8, I11, readback)", () => {
     expect(record().task.request.role).toBe("radiant-dev");
   });
 
+  // Protects: Spec 3, item 4, the literal glob TC-NNNN-*.md, whose `*` also
+  // matches an empty suffix. Fails if the contract name needs a slug.
+  test("a contract named with an empty suffix", async () => {
+    ready(sb, root);
+    git(sb.repo, ["mv", CONTRACT, "docs/contracts/TC-0042-.md"], sb.env);
+    commitAll(sb, "empty suffix");
+    expect((await attempt(sb, backend(sb))).code).toBe(0);
+    expect(record().provenance["contract"]).toBe("docs/contracts/TC-0042-.md");
+  });
+
   // Protects: Spec 3, item 3, an explicit --base wins over the current
   // branch, and the ref asked for is the base_ref. Fails if the explicit
   // ref is ignored.

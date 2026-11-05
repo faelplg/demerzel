@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Backend } from "../core/backend.ts";
 import { refuse, type Outcome } from "../core/commands/common.ts";
 import type { Config } from "../core/config.ts";
@@ -22,7 +20,6 @@ export type Prepared = { ok: true; task: Task } | { ok: false; outcome: Outcome 
 
 const C = "dispatch";
 const UNIT_ID = /^(TC-\d{4})\.[1-9]\d*$/;
-const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 function stop(failure: Failure): Prepared {
   return { ok: false, outcome: refuse(C, failure.code, failure.message, failure.next, failure.hold ?? false) };
@@ -74,14 +71,7 @@ export function prepareDispatch(request: DispatchRequest, ctx: { cwd: string; en
   // Spec 3, item 2: the pin gate, on the caller checkout.
   const gate = checkProject(root, project, env);
   if (!gate.ok) return stop(gate.failure);
-  let map: unknown;
-  try {
-    map = parseJson(readFileSync(join(project, ".radiant.json"), "utf8"));
-  } catch {
-    map = undefined;
-  }
-  const pin = isObject(map) ? map["radiant_revision"] : undefined;
-  if (typeof pin !== "string" || !COMMIT.test(pin)) return stop({ code: "pin-mismatch", message: "o .radiant.json do checkout chamador não tem um radiant_revision completo", next: "Confira o pin do projeto." });
+  const pin = gate.pin;
 
   // Spec 3, item 3: the base, resolved to a commit once.
   let baseRef = request.base;
@@ -109,7 +99,8 @@ export function prepareDispatch(request: DispatchRequest, ctx: { cwd: string; en
   const dir = contractsDir(baseMap["contracts"]);
   if (dir === null) return notFound(`o .radiant.json do commit base ${commit} não tem contracts como path relativo dentro do repositório`);
   const listed = git(project, ["ls-tree", "-z", "--full-tree", commit, "--", dir === "" ? "." : `${dir}/`], env);
-  const pattern = new RegExp(`^${prefix}-.+\\.md$`);
+  // The literal glob TC-NNNN-*.md, whose `*` also matches nothing.
+  const pattern = new RegExp(`^${prefix}-.*\\.md$`);
   const matches = listed.code !== 0 ? [] : listed.stdout.split("\0").filter(Boolean).flatMap((row) => {
     const [meta, path] = row.split("\t");
     const name = path?.split("/").at(-1) ?? "";
