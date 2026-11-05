@@ -7,13 +7,14 @@ function line(task: TaskView, command: string): string {
   const parts = [task.id, `lifecycle=${task.lifecycle}`, `agent=${task.agent ?? "-"}`, `report=${task.report ?? "-"}`];
   if (command === "status" && task.interrupted) parts.push("interrupted=true");
   if (command === "resume" || command === "dispatch") parts.push(`request_sent=${String(task.request_sent)}`);
+  if (command === "dispatch") parts.push(`harness=${task.harness}`, `model=${task.model}`, `rule=${task.provenance["rule"] ?? "-"}`);
   return parts.join("  ");
 }
 
 export function formatText(envelope: Envelope): { stdout: string; stderr: string } {
   if (envelope.refusal !== null) {
     const r = envelope.refusal;
-    return { stdout: "", stderr: `recusa ${r.code}: ${r.message}\npróximo passo: ${r.next}\n` };
+    return { stdout: "", stderr: `recusa ${r.code}${r.hold ? " (hold)" : ""}: ${r.message}\npróximo passo: ${r.next}\n` };
   }
   const out: string[] = [];
   if (envelope.tasks.length === 0) out.push("nenhuma tarefa");
