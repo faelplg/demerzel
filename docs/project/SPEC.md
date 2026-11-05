@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.13, 2026-11-04
+Revisão da Spec: 0.14, 2026-11-05
 Frame: [revisão 0.3](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -205,7 +205,9 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
   sessão padrão. O herdr 0.9.0 só escolhe a sessão por essa flag, sem
   variável de ambiente.
 - `radiant`: lido só pela integração. `root` é obrigatório para despachar
-  unidades e não tem padrão. `branch_prefix` é opcional, padrão `radiant/`.
+  unidades, não tem padrão e precisa ser um path absoluto; relativo é
+  `config-invalid`. `branch_prefix` é opcional, padrão `radiant/`; só a
+  chave ausente usa o padrão, e `null` é tipo errado.
 - Arquivo ausente: o núcleo usa os padrões e a integração recusa por falta de
   `radiant.root`.
 
@@ -325,10 +327,17 @@ incremento.
    | `check_dispatch.py` | saída `0` com o JSON prometido | saída `1` com `{"errors": [...]}`, item 5 | `validator-failed` |
 
    "Qualquer outra coisa" inclui outra saída, encerramento por sinal,
-   `python3` ausente e texto fora do formato prometido.
+   `python3` ausente e texto fora do formato prometido. O pin que o gate
+   validou é o commit da linha `PASS:` (`PASS: Radiant <commit>;` na revisão
+   fixada no pin), e uma linha `PASS:` sem ele está fora do formato. A
+   integração nunca relê o `.radiant.json` do checkout chamador depois do
+   gate. Os arquivos que a integração lê direto do checkout Radiant
+   (`agents.json`, `capabilities.json` e `provides.json`) fora do formato
+   também são `validator-failed`: o checkout não é o que o pin promete.
 3. **Base.** `--base <ref>`, ou o branch atual do checkout chamador; em HEAD
    destacado, o commit de HEAD. A base é resolvida para um commit e os dois são
-   gravados. O `.radiant.json` lido do commit base precisa ser um objeto JSON
+   gravados; uma base que não resolve para um commit é `task-invalid`, como
+   no núcleo. O `.radiant.json` lido do commit base precisa ser um objeto JSON
    com o mesmo `radiant_revision` que o gate validou no checkout chamador; se
    falta, não é JSON, não tem a chave ou diverge, a recusa é `pin-mismatch`.
    Do resto desse mapa, a integração só usa `contracts`, conferido no item 4.
@@ -340,7 +349,9 @@ incremento.
    meio.
 4. **Contrato.** O prefixo do ID (`TC-0025` em `TC-0025.1`) localiza o arquivo
    `TC-0025-*.md` no diretório `contracts` do `.radiant.json` do commit base;
-   precisa haver exatamente um. `contracts` ausente, nulo ou fora de um path
+   precisa haver exatamente um, e o `*` aceita também o sufixo vazio. Um ID
+   fora de `TC-NNNN.N` é `unit-not-found` antes do gate, sem rodar nenhum
+   validator, porque sem o prefixo não há contrato a procurar. `contracts` ausente, nulo ou fora de um path
    relativo dentro do repositório, como no `check_project.py`, também é
    `contract-not-found`. O contrato é lido do commit base, não do working tree, para
    que a sessão despachada veja o mesmo texto que foi validado. A ativação
@@ -770,3 +781,20 @@ em 2026-11-04. Valem quando o owner aprovar o PR do contrato:
 | Protocolo dos validators | Uma linha por executável, seção 3, item 2; `validator-failed` para o que fica fora dele. Substitui a decisão da revisão 0.12 |
 | Execuções por `dispatch` | Uma vez o gate, uma `units` e uma `routing`, parando na primeira recusa |
 | Bytecode | Validators com `PYTHONDONTWRITEBYTECODE=1`; nada gravado no checkout Radiant, nem arquivo ignorado |
+
+Revisão 0.14, 2026-11-05, depois da primeira verificação independente do
+Build do TC-0003, pelo Codex em `gpt-6-astra`, papel `radiant-verifier`. O
+verificador apontou quatro códigos de recusa que a Spec não decidia, e o
+owner aprovou, em 2026-11-05, o que o Build já fazia:
+
+| Questão | Decisão |
+| --- | --- |
+| `--base` que não resolve | `task-invalid`, o código que o núcleo dava para a mesma checagem. Alternativa descartada: um código próprio da integração |
+| ID de unidade fora de `TC-NNNN.N` | `unit-not-found` antes do gate, sem rodar validator. Alternativa descartada: rodar o gate primeiro |
+| `radiant.root` relativo | `config-invalid`, porque o pointer `radiant-root` é absoluto. Alternativa descartada: resolver relativo à pasta da configuração |
+| `agents.json`, `capabilities.json` ou `provides.json` fora do formato | `validator-failed`. Alternativa descartada: `pin-mismatch` |
+
+A mesma verificação levou a três esclarecimentos, sem decisão nova: o pin
+validado é o da linha `PASS:` do gate, e a integração não relê o mapa do
+chamador; `branch_prefix: null` é tipo errado; o glob `TC-NNNN-*.md` aceita o
+sufixo vazio.
