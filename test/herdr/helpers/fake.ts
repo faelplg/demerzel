@@ -55,6 +55,8 @@ export type FakeHerdr = {
   state: () => { workspaces: Array<{ id: string; label: string }>; agents: Array<{ name: string; status: string; cwd: string }>; script: FakeHerdrScript };
   script: (patch: Partial<FakeHerdrScript>) => void;
   setAgentStatus: (name: string, status: string) => void;
+  // Moves an agent's foreground cwd, as when the session leaves its worktree.
+  setAgentCwd: (name: string, cwd: string) => void;
 };
 
 export function installFakeHerdr(root: string, baseEnv: Env, patch: Partial<FakeHerdrScript> = {}): FakeHerdr {
@@ -84,6 +86,13 @@ export function installFakeHerdr(root: string, baseEnv: Env, patch: Partial<Fake
       const agent = s.agents.find((a: { name: string }) => a.name === name);
       if (agent === undefined) throw new Error(`no fake herdr agent ${name}`);
       agent.status = status;
+      write(s);
+    },
+    setAgentCwd: (name, cwd) => {
+      const s = read();
+      const agent = s.agents.find((a: { name: string }) => a.name === name);
+      if (agent === undefined) throw new Error(`no fake herdr agent ${name}`);
+      agent.cwd = cwd;
       write(s);
     },
   };
