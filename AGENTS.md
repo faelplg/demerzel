@@ -20,9 +20,12 @@ Comandos, da raiz:
 
 - `bun install --frozen-lockfile`: instala as dependências de desenvolvimento
   fixadas no `bun.lock`.
-- `bun run check`: checagem de tipos, a suíte do núcleo sem `python3`, os
-  testes do backend herdr e os do CLI. Todo incremento termina com ele
-  passando.
+- `DEMERZEL_RADIANT_ROOT=<checkout Radiant no pin> bun run check`: checagem
+  de tipos, a suíte do núcleo sem `python3`, os testes do backend herdr, os do
+  CLI e os da integração Radiant. Precisa de `python3` 3.9 ou acima e de um
+  checkout limpo de `faelplg/radiant` no `radiant_revision` do
+  `.radiant.json`; sem ele, os testes da integração falham com a instrução.
+  Todo incremento termina com ele passando.
 - `bun run test:core`: a suíte de `test/core/` num `PATH` só com `git` e
   `bun`, sem `python3`.
 - `bun run typecheck` e `bun test`: a checagem de tipos e todos os testes com
@@ -33,7 +36,7 @@ Comandos, da raiz:
 - `DEMERZEL_SMOKE_REPO=<repositório descartável> bun run smoke:herdr`: o smoke
   com Claude Code e Codex reais, rodado pelo orquestrador com o owner
   presente. Gasta modelo. Fora do `check`.
-- `./src/cli.ts <comando>`: o entrypoint `demerzel` sem instalar; `--version`, `resume`, `status`, `wait`, `collect` e `close`.
+- `./src/cli.ts <comando>`: o entrypoint `demerzel` sem instalar; `--version`, `dispatch`, `resume`, `status`, `wait`, `collect` e `close`.
 
 Cada teste nomeia o comportamento que protege e a regressão que o faria
 falhar, como pede a Spec, seção 7.

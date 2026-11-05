@@ -31,6 +31,20 @@ jobs:
           bun-version: 1.4.2
       - run: bun --version
       - run: bun install --frozen-lockfile
-      # Typecheck, the core suite with only git and bun on PATH, and the CLI
-      # tests. scenario:herdr and smoke:herdr need a real herdr and stay out.
+      # TC-0003: the Radiant checkout at the pin of .radiant.json, public and
+      # without credentials, in .radiant/, which Git ignores here. The
+      # integration tests read it through DEMERZEL_RADIANT_ROOT.
+      - id: pin
+        run: echo "revision=$(python3 -c 'import json; print(json.load(open(".radiant.json"))["radiant_revision"])')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: faelplg/radiant
+          ref: ${{ steps.pin.outputs.revision }}
+          path: .radiant/radiant
+          persist-credentials: false
+      # Typecheck, the core suite with only git and bun on PATH, and the
+      # herdr, CLI and Radiant integration tests. scenario:herdr and
+      # smoke:herdr need a real herdr and stay out.
       - run: bun run check
+        env:
+          DEMERZEL_RADIANT_ROOT: ${{ github.workspace }}/.radiant/radiant
