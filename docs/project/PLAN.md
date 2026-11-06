@@ -49,8 +49,8 @@ mesma verificação é dividida entre núcleo e integração.
    condition on owner time and attention is inconclusive by measurement; the
    owner's decision is recorded next to it and weighs in the stopping point
    after increment 6. Each other refutation condition of the Frame comes out
-   sustained, refuted, or inconclusive; one contract alone does not decide "most contracts". The
-   result returns to Radiant as a Learn Back.
+   sustained, refuted, or inconclusive; one contract alone does not decide
+   "most contracts". The result returns to Radiant as a Learn Back.
 
 ## Pontos de parada
 
