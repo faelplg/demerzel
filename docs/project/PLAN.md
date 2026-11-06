@@ -45,10 +45,11 @@ mesma verificação é dividida entre núcleo e integração.
    orchestrator. Evidence: verification 9, plus the owner's time and actions
    in preparation, intervention, and recovery. There is no manual baseline:
    on 2026-11-06 the owner decided that setting up the sessions by hand is
-   tedious whatever its productivity, so the Frame condition on owner time
-   and attention is marked by owner decision, not by measurement. Each other
-   refutation condition of the Frame comes out sustained, refuted, or
-   inconclusive; one contract alone does not decide "most contracts". The
+   tedious whatever its productivity. Without that baseline, the Frame
+   condition on owner time and attention is inconclusive by measurement; the
+   owner's decision is recorded next to it and weighs in the stopping point
+   after increment 6. Each other refutation condition of the Frame comes out
+   sustained, refuted, or inconclusive; one contract alone does not decide "most contracts". The
    result returns to Radiant as a Learn Back.
 
 ## Pontos de parada
