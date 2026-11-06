@@ -1,6 +1,6 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.4, 2026-11-04
+Revisão do Plan: 0.5, 2026-11-06
 Spec: [revisão 0.14](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -18,6 +18,7 @@ A revisão 0.3 do Plan fecha o incremento 1 e acompanha a Spec 0.4, que mudou
 a criação do worktree do Claude Code e tirou a confiança do Demerzel. A
 revisão 0.4 acompanha a Spec 0.10, que resolve o achado P1 do review do
 PR #16 antes do incremento 5.
+Revision 0.5 drops the manual baseline from increment 6, by owner decision.
 
 ## Feito
 
@@ -38,14 +39,18 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-6. **Menor experimento.** Contrato no AIKM, não aqui. Um contrato real do
-   AIKM com duas unidades independentes, uma para Claude Code e outra para
-   Codex, despachadas pelo Demerzel e aceitas pelo orquestrador. Evidência:
-   verificação 9, mais o tempo e as ações do owner em preparo, intervenção e
-   recuperação, comparados com montar as mesmas duas sessões à mão. Cada
-   condição de refutação do Frame sai como sustentada, refutada ou
-   inconclusiva; um contrato só não decide "a maioria dos contratos". O
-   resultado volta ao Radiant como Learn Back.
+6. **Smallest experiment.** Contract in AIKM, not here: TC-0025 in
+   `faelplg/aikm`. A real AIKM contract with two independent units, one for
+   Claude Code and one for Codex, dispatched by Demerzel and accepted by the
+   orchestrator. Evidence: verification 9, plus the owner's time and actions
+   in preparation, intervention, and recovery. There is no manual baseline:
+   on 2026-11-06 the owner decided that setting up the sessions by hand is
+   tedious whatever its productivity. Without that baseline, the Frame
+   condition on owner time and attention is inconclusive by measurement; the
+   owner's decision is recorded next to it and weighs in the stopping point
+   after increment 6. Each other refutation condition of the Frame comes out
+   sustained, refuted, or inconclusive; one contract alone does not decide
+   "most contracts". The result returns to Radiant as a Learn Back.
 
 ## Pontos de parada
 
