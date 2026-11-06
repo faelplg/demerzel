@@ -39,8 +39,8 @@ de um Task Contract em `docs/project/contracts/` antes do Build. Toda
 verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
-6. **Smallest experiment.** Contract in AIKM, not here: TC-0025 in
-   `faelplg/aikm`. A real AIKM contract with two independent units, one for
+6. **Smallest experiment** ([faelplg/demerzel#27](https://github.com/faelplg/demerzel/issues/27)).
+   Contract in AIKM, not here: TC-0025 in `faelplg/aikm`. A real AIKM contract with two independent units, one for
    Claude Code and one for Codex, dispatched by Demerzel and accepted by the
    orchestrator. Evidence: verification 9, plus the owner's time and actions
    in preparation, intervention, and recovery. There is no manual baseline:
