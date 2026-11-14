@@ -1,16 +1,22 @@
 # Demerzel
 
-Demerzel runs each unit of a [Radiant](https://github.com/faelplg/radiant)
-Task Contract as its own Claude Code or Codex session in
-[herdr](https://herdr.dev). It creates the unit's branch and worktree, opens a
-herdr workspace, starts the harness that the routing rules pick, and sends a
-request that carries only the unit's ID and role and pointers: the contract
-path, the Radiant checkout and its revision. The orchestrator, the session that
-talks to the human, then follows the unit with `status` and `wait` and reads
-its Completion report with `collect`.
+Demerzel runs each task as its own coding agent session, in its own branch
+and worktree, and tracks it until its report is in. An orchestrator, the agent
+session that talks to the human, hands it a task instead of using its harness's
+native subagent. Demerzel creates the branch and worktree, starts the agent,
+and sends a request that carries only the task's ID and role and pointers to
+what it needs. The orchestrator then follows the task with `status` and `wait`
+and reads its report with `collect`.
+
+Today the tasks come from the units of a
+[Radiant](https://github.com/faelplg/radiant) Task Contract, the agents are
+Claude Code and Codex, and each session runs in [herdr](https://herdr.dev).
+The core in `src/core/` knows none of Radiant; the Radiant integration in
+`src/radiant/` turns a unit into a task, and herdr sits behind Demerzel's own
+backend interface.
 
 Demerzel has no judgment. It does not split the work, choose the routing rule,
-or accept what a unit delivers. It validates and runs what the orchestrator
+or accept what a task delivers. It validates and runs what the orchestrator
 asked for, and the acceptance stays with the orchestrator and the verifier. It
 never merges, pushes, opens a PR, deletes a branch, edits a contract, or
 answers a permission prompt.
@@ -113,7 +119,7 @@ worktree of the project sees the same tasks as its main checkout.
   what to do next. The codes are in the [Spec, section 5](docs/project/SPEC.md#5-recusas).
 - Exit code 1 means something needs attention: a failed launch, a blocked
   agent, a missing report, or a timeout.
-- The request carries only Demerzel's fixed text, the unit's ID and role, the
+- The request carries only Demerzel's fixed text, the task's ID and role, the
   report path, refs and paths, all checked against fixed formats, never
   contract content or secrets. The launched harness reads the contract and
   sends it to its model provider, as it would in a session opened by hand, so
