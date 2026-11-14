@@ -1,7 +1,7 @@
 # Spec: Demerzel
 
 Revisão da Spec: 0.14, 2026-11-05
-Frame: [revisão 0.3](FRAME.md)
+Frame: [revisão 0.4](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 Esta Spec define o comportamento observável do primeiro incremento: o núcleo
