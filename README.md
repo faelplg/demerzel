@@ -4,10 +4,10 @@ Demerzel runs each unit of a [Radiant](https://github.com/faelplg/radiant)
 Task Contract as its own Claude Code or Codex session in
 [herdr](https://herdr.dev). It creates the unit's branch and worktree, opens a
 herdr workspace, starts the harness that the routing rules pick, and sends a
-request that carries only pointers: the contract path, the unit ID and the
-Radiant revision. The orchestrator, the session that talks to the human, then
-follows the unit with `status` and `wait` and reads its Completion report with
-`collect`.
+request that carries only the unit's ID and role and pointers: the contract
+path, the Radiant checkout and its revision. The orchestrator, the session that
+talks to the human, then follows the unit with `status` and `wait` and reads
+its Completion report with `collect`.
 
 Demerzel has no judgment. It does not split the work, choose the routing rule,
 or accept what a unit delivers. It validates and runs what the orchestrator
@@ -113,10 +113,11 @@ worktree of the project sees the same tasks as its main checkout.
   what to do next. The codes are in the [Spec, section 5](docs/project/SPEC.md#5-recusas).
 - Exit code 1 means something needs attention: a failed launch, a blocked
   agent, a missing report, or a timeout.
-- The request carries only fixed text, IDs, refs and paths, never contract
-  content or secrets. The launched harness reads the contract and sends it to
-  its model provider, as it would in a session opened by hand, so choosing a
-  rule is also choosing where the contract goes.
+- The request carries only Demerzel's fixed text, the unit's ID and role, the
+  report path, refs and paths, all checked against fixed formats, never
+  contract content or secrets. The launched harness reads the contract and
+  sends it to its model provider, as it would in a session opened by hand, so
+  choosing a rule is also choosing where the contract goes.
 - No downgrade. When no candidate meets the unit's capability, the refusal
   carries `hold: true` instead of picking a weaker model.
 - The core in `src/core/` does not know Radiant. Its suite runs with only
