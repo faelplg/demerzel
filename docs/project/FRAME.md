@@ -93,8 +93,10 @@ A hipótese é refutada quando:
 
 Result, 2026-11-07: TC-0025 in AIKM
 ([faelplg/aikm#45](https://github.com/faelplg/aikm/pull/45)) dispatched its
-three units through Demerzel, two of them in parallel, one on Claude Code and
-one on Codex, and the orchestrator accepted all three. By condition:
+three units through Demerzel, and the orchestrator accepted all three. Units 1
+and 2 were the experiment's two independent units, dispatched in parallel from
+the same base, one on Claude Code and one on Codex. Unit 3 depended on both and
+ran on Claude Code after them, beyond what the experiment asks. By condition:
 
 - owner time or attention above setting up by hand: inconclusive by
   measurement, since there was no manual baseline; the owner decided that
