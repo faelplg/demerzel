@@ -46,9 +46,9 @@ mesma verificação é dividida entre núcleo e integração.
 The second increment, decided by the owner on 2026-11-14 at the stopping
 point after increment 6. The order follows risk: first the Learn Backs from
 TC-0025, the two that every dispatch hits and the update prompt that every
-Codex launch hits, then the read-only views, and last
-the changes that open egress questions. Each one changes the Spec before its
-Build; whether it needs a Task Contract is decided when it comes next.
+Codex launch hits, then the read-only views, and last the changes that open
+egress questions. Each one changes the Spec before its Build; whether it needs
+a Task Contract is decided when it comes next.
 
 7. Prepare dependencies in dispatched worktrees
    ([faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30)).
