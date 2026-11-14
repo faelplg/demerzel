@@ -1,6 +1,6 @@
 # Project Frame: Demerzel
 
-Revisão do Frame: 0.3, 2026-10-17
+Revisão do Frame: 0.4, 2026-11-14
 Referência Radiant: 33fd4efb482bc83564e868e6d9c3859cb8de15e9
 
 O Demerzel nasceu do ADR-0002 do Radiant. Em 2026-10-17 o owner decidiu que
@@ -91,6 +91,27 @@ A hipótese é refutada quando:
 - o núcleo precisa de um checkout Radiant para despachar uma tarefa já
   resolvida.
 
+Result, 2026-11-07: TC-0025 in AIKM
+([faelplg/aikm#45](https://github.com/faelplg/aikm/pull/45)) dispatched its
+three units through Demerzel, two of them in parallel, one on Claude Code and
+one on Codex, and the orchestrator accepted all three. By condition:
+
+- owner time or attention above setting up by hand: inconclusive by
+  measurement, since there was no manual baseline; the owner decided that
+  setting up by hand is not worth the attention;
+- most contracts need an amendment to the split: inconclusive; this contract
+  needed none, and one contract does not decide "most";
+- launch often stuck on trust or authentication prompts: not refuted; neither
+  appeared, but the Codex update prompt stopped every Codex launch, and
+  Demerzel reported it as `blocked` without sending the request, as designed;
+- the orchestrator still pastes context into the request: not refuted; each
+  request carried only the contract pointer and the unit ID;
+- the core needs a Radiant checkout: not refuted; the core suite passed
+  without one.
+
+The hypothesis stands. On 2026-11-14 the owner decided that Demerzel continues
+to a second increment, ordered in the Plan.
+
 ## Fronteiras
 
 O Demerzel nunca:
@@ -128,11 +149,12 @@ Fora de escopo:
 - execução em nuvem ou em host remoto;
 - alterações na Constitution do Radiant.
 
-Questões em aberto, para Spec ou Plan:
+Open questions, all answered:
 
-- modelo interno de tarefa do núcleo;
-- path e formato da configuração do Demerzel, que guarda o prefixo de branch e
-  a opção de `--trust-repository`;
-- versão mínima do herdr; o ADR-0002 exige uma e registra apenas a 0.9.0 como
-  conferida em 2026-10-16;
-- qual consumidor real recebe o menor experimento.
+- the core's internal task model: Spec, section 2.1;
+- the path and format of Demerzel's configuration:
+  `$XDG_CONFIG_HOME/demerzel/config.json`, Spec, sections 2.4 and 9. It holds
+  no `--trust-repository` option, since Spec 0.4 dropped repository trust;
+- the minimum herdr version: 0.9.0, accepting later versions, Spec, sections
+  2.5 and 9;
+- the real consumer for the smallest experiment: AIKM, with TC-0025.
