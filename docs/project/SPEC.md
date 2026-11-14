@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.14, 2026-11-05
+Revisão da Spec: 0.15, 2026-11-14
 Frame: [revisão 0.4](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -13,6 +13,10 @@ em aberto e as que as fontes não tomavam foram aprovadas pelo owner em
 2026-10-17 e estão registradas na seção 9. A revisão 0.4 aplica as provas do
 incremento 1 do Plan, em `docs/project/verification/`: cada harness tem seu
 modo de criar o worktree, e a confiança passa a ser pré-requisito do owner.
+Revision 0.15 adds the project preparation of section 2.6, for
+[faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30): Demerzel
+creates every worktree itself, prepares it, and only then starts the agent,
+and a dispatch holds a lock of its own task.
 
 ## 1. Conceitos
 
@@ -97,7 +101,8 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   o mesmo registro.
 - Dentro do projeto: `tasks/<id>.json`, um arquivo por tarefa, gravado por
   arquivo temporário e rename; `worktrees/<id>/`, os worktrees criados; e
-  `lock`.
+  `lock`. Since revision 0.15, also `tasks/<id>.lock`, the task lock, and
+  `logs/<id>/prepare.log`, the output of the preparation (section 2.6).
 - O lock serializa todo comando que grava no registro: `dispatch`, `resume`,
   `collect` e `close`. `status` e `wait` só leem e não o pegam; como cada
   arquivo de tarefa é trocado por rename, eles nunca leem um arquivo pela
@@ -111,7 +116,19 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   exclusão não depende desse conteúdo.
 - Quem tem o lock só solta depois de gravar o último estado do comando.
   Um `dispatch` segura o lock de `recorded` até `launched` ou
-  `launch-failed`, inclusive durante o envio.
+  `launch-failed`, inclusive durante o envio, with one exception: it
+  releases the project lock while the preparation runs (section 2.6) and
+  takes it back, with the same 30 s wait, before the next record.
+- Task lock: an `flock(LOCK_EX)` on `tasks/<id>.lock`, taken without
+  waiting by the `dispatch` of that task while it holds the project lock and
+  before it writes `recorded`, and held until its last record. It tells a
+  live `dispatch` from an interrupted one, which the project lock alone can
+  no longer do once it is released during the preparation. Only the holder
+  of a task lock writes that task's file; a command that writes another
+  task, as in a recovery, first takes that task's lock without waiting. If
+  the project lock cannot be taken back after the preparation, the
+  `dispatch` still holds its task lock, so it records `launch-failed` with
+  the reason and `created` as it is, and exits with `1`.
 - Cada tarefa registra: a tarefa recebida, o pedido final, harness, modelo,
   esforço aplicado ou omitido, base (ref e commit), branch, path do worktree,
   IDs no backend (workspace, aba, pane, nome do agente), `provenance`, ciclo de
@@ -121,17 +138,22 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
 - Ordem das gravações no `dispatch`: `recorded` com a decisão; `launching`
   antes do primeiro efeito; cada recurso entra em `created` logo depois de
   criado; `send_started_at` antes do envio; `launched` com o desfecho do
-  envio. Cada gravação termina antes do passo seguinte começar.
+  envio. Cada gravação termina antes do passo seguinte começar. Since
+  revision 0.15 the effects run in this order: branch and worktree, created
+  by the core (section 2.6); `prepare_started_at`, then the preparation, then
+  its outcome; session; agent; launch check; send.
 - Projeto ausente: um comando chamado fora de um repositório Git não tem
   projeto nem registro, e a recusa é `not-a-project`.
 - Recuperação: `dispatch`, `resume` e `close`, os comandos que pegam o lock e
-  falam com o backend, ao encontrar tarefa em `recorded` ou `launching` sabem
-  que o `dispatch` dela foi interrompido, porque o dono daquele `dispatch`
-  teria o lock. Antes de agir, gravam a recuperação e o motivo `interrupted`
+  falam com o backend, ao encontrar tarefa em `recorded` ou `launching` take
+  its task lock without waiting. If they get it, the task's `dispatch` was
+  interrupted, because a live one would hold it; if they do not, a
+  `dispatch` is still running and the task is left as it is. Antes de agir,
+  gravam a recuperação e o motivo `interrupted`
   no histórico. `collect` não recupera e só grava a própria tarefa:
   - `recorded`: `launch-failed` com `created` vazio, porque nenhum efeito
     começou;
-  - `launching`: confere no Git e no snapshot o branch, o worktree, o
+  - `launching`, including an interrupted preparation: confere no Git e no snapshot o branch, o worktree, o
     workspace pelo ID gravado ou, sem ele, pelo label, com a aba e o pane
     dele, e o agente pelo nome, e grava em `created` o que existe. Com o agente vivo, a tarefa vai para `launched`, com
     `request_sent: unknown` se `send_started_at` foi gravado e `false` se não;
@@ -220,8 +242,8 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 
 | Operação | herdr 0.9.0 |
 | --- | --- |
-| Criar worktree e sessão, Codex | `herdr worktree create --cwd <projeto> --branch <branch> --base <commit> --path <path> --label <label> --no-focus`. Devolve `workspace`, `tab`, `root_pane` e `worktree`. |
-| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <label> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. O worktree nasce no passo seguinte. |
+| Criar sessão, Codex | `herdr workspace create --cwd <worktree> --label <label> --no-focus`, in the worktree the core already created and prepared (section 2.6). Devolve `workspace`, `tab` e `root_pane`. Until revision 0.14 it was `herdr worktree create`, which also created the worktree. |
+| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <label> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. The agent enters the worktree in the next step. |
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args>`. No Codex, `<args>` são modelo e esforço. No Claude Code, vêm antes `--worktree <nome> --settings <hook>`, descritos abaixo. |
 | Conferir o lançamento, Claude Code | `herdr agent get <nome>`, com o `foreground_cwd` do próprio agente; `git -C <projeto> rev-parse --verify refs/heads/<branch>`; e, no worktree, `git -C <worktree> symbolic-ref HEAD` e `git -C <worktree> rev-parse HEAD`. No Codex não há pós-condição e a conferência passa sem chamada. |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
@@ -229,7 +251,7 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
 | Esperar | Ciclo próprio: a cada intervalo curto, lê `herdr api snapshot` e confere o arquivo de retorno, até cada tarefa chegar a um estado de parada ou o timeout expirar. `herdr agent wait` não serve sozinho: não vê o arquivo de retorno e, sem `--until`, só volta em `idle`, `done` ou `blocked`. |
 | Encerrar | `herdr workspace close <workspace>`; com descarte, depois `git -C <projeto> worktree remove <path>`, sem `--force` |
 
-- No herdr 0.9.0, `worktree create` e `workspace create` abrem um workspace
+- No herdr 0.9.0, `workspace create` abre um workspace
   próprio com uma aba e um pane. A "aba própria" da unidade é essa aba.
 - O label do workspace é o ID da tarefa, um espaço e o nome do agente, por
   exemplo `TC-0025.1 dz-6de747e982262631`. O ID é o que o humano lê na aba;
@@ -237,19 +259,25 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   herdr, para que a recuperação nunca tome a aba de outro projeto.
 - O path do worktree é `<registro do projeto>/worktrees/<id>`, decidido antes
   do primeiro efeito para que a recusa de path existente seja verificável.
-  Path, branch e base são os mesmos nos dois harnesses; muda só quem cria o
-  worktree.
+  Path, branch e base são os mesmos nos dois harnesses. Since revision 0.15
+  the core creates the worktree for both, and what differs is only where the
+  agent starts.
 - Por que dois modos: o Claude Code 2.1.286 confia por path exato e pararia
-  no diálogo de confiança em cada worktree novo criado pelo herdr; o Codex
+  no diálogo de confiança em cada worktree novo aberto como cwd; o Codex
   0.166.0 confia pela raiz do repositório e cobre os worktrees dela. Sem
   hook, o `claude --worktree` escolhe sozinho path, branch e base
   (`origin/HEAD` ou o `HEAD` local), o que não serve à integração Radiant.
+  So Claude Code starts at the trusted root and enters the worktree through
+  the hook, and Codex starts in the worktree. The
+  [prepared worktree probe](verification/2026-11-14-prepared-worktree-probe.md)
+  showed both with a worktree created by `git worktree add` before the
+  agent, with Claude Code 2.1.311 and Codex 0.169.0, 0 of 5 dialogs each.
 - Worktree do Claude Code: o agente é iniciado na raiz do projeto com
   `--worktree <nome do agente>` e `--settings <json>`. O JSON tem só um hook
-  `WorktreeCreate` de comando, que roda
-  `git -C <projeto> worktree add -b <branch> <path> <commit base>` com a
-  saída do Git no stderr e imprime só `<path>` no stdout. O Demerzel monta o
-  comando com cada argumento entre aspas simples, no escape de POSIX `sh`, e
+  `WorktreeCreate` de comando, which since revision 0.15 creates nothing: it
+  runs `printf '%s' <path>` and so prints only the path of the worktree the
+  core already created and prepared. O Demerzel monta o
+  comando com o argumento entre aspas simples, no escape de POSIX `sh`, e
   grava o JSON no registro antes do primeiro efeito.
 - Pós-condição do lançamento no Claude Code: depois de `agent start`, o
   `foreground_cwd` do agente é o path do worktree, o branch existe e aponta
@@ -298,14 +326,84 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   `request_sent: false`, observada como `blocked`. O pedido sai depois por
   `resume`. No Claude Code, a pós-condição de lançamento é conferida também
   no startup bloqueado: se cwd, branch e commit base conferem, a tarefa fica
-  `launched` e bloqueada; se não conferem, inclusive porque o hook ainda não
-  criou o worktree, vai para `launch-failed`, com `created` listando o que
-  existe. O `resume` nunca envia o pedido a um worktree que não foi
+  `launched` e bloqueada; se não conferem, inclusive porque o agente ainda
+  não entrou no worktree, vai para `launch-failed`, com `created` listando o
+  que existe. O `resume` nunca envia o pedido a um worktree que não foi
   conferido, porque confere de novo antes de enviar.
 - `agent_blocked` no envio, isto é, agente já bloqueado antes de receber o
   pedido, deixa `request_sent: false`.
 - `agent_prompt_stalled` ou timeout no envio deixam `request_sent: unknown`. O
   Demerzel não reenvia sozinho, porque o pedido pode ter chegado.
+
+### 2.6 Project preparation
+
+A project declares how a fresh worktree is prepared, such as installing its
+dependencies, so that a dispatched task can run the project's check without
+preparing anything on its own. The preparation is the project's, not the
+integration's: the core reads it, and an integration neither adds nor
+removes commands.
+
+Declared in `.demerzel.json` at the project root, read from the base commit
+with `git show <commit>:.demerzel.json`, like the contract in section 3, so
+what runs is what was committed at the commit being dispatched:
+
+```json
+{
+  "schema": 1,
+  "prepare": [
+    ["bun", "install", "--frozen-lockfile"]
+  ]
+}
+```
+
+- `schema`: exactly `1`. An unknown key is a refusal.
+- `prepare`: optional; a list of commands, run in order. Each command is a
+  non-empty list of strings, an argv with no shell: no expansion, no
+  pipes, no redirection. No string is empty or holds a NUL. An absent
+  `prepare`, or an empty list, prepares nothing.
+- File absent at the base commit: no preparation, as before revision 0.15.
+- A file that is not JSON or breaks any rule above is the refusal
+  `project-config-invalid`, before the first effect. The message names the
+  file, the commit and the rule, never the values.
+- The commands are recorded in `recorded`, with the commit they came from,
+  before the first effect, and are never read again for the same task.
+
+Run by the core, after the worktree exists and before the session opens:
+
+1. The core creates the branch and the worktree for every harness with
+   `git -C <project> worktree add -b <branch> <path> <commit base>`, and
+   records both in `created`. Before revision 0.15 the backend created them,
+   in a different way per harness.
+2. It records `prepare_started_at` and releases the project lock, keeping
+   the task lock (section 2.3).
+3. It runs each command with the worktree as its cwd, stdin from
+   `/dev/null`, Demerzel's own environment, and its own process group. The
+   program is found on `PATH`, or, when it holds a `/`, relative to the
+   worktree. Standard output and error go, in order, to
+   `logs/<id>/prepare.log` in the project's registry, with one header line
+   per command giving its index; nothing goes to Demerzel's own output.
+4. It stops at the first command that exits with a code other than `0`, is
+   ended by a signal, or cannot start. The whole preparation has a fixed
+   limit of 10 minutes; past it, the process group receives `SIGTERM`, then
+   `SIGKILL` 5 s later.
+5. It takes the project lock back and records the outcome: each command run
+   with its exit code or signal and its duration, and the log path.
+
+A failed preparation takes the task to `launch-failed`, with `created`
+listing the branch and the worktree, both kept for the human to inspect,
+and no session or agent started. `dispatch` exits with `1`. The reason
+names the index and program of the failed command, its exit code, signal
+or the time limit, and the log path, never the log's content.
+
+An interrupted preparation, such as a `dispatch` killed while a command
+runs, leaves the task in `launching` with `prepare_started_at` and its task
+lock free; the recovery of section 2.3 takes it to `launch-failed` with the
+branch and the worktree in `created`. A command still running from the
+killed `dispatch` is not stopped by the recovery.
+
+The preparation does not change what the request carries (section 2.2), but
+it runs commands from the project with the user's environment, with the
+network access those commands use; section 6 covers it.
 
 ## 3. Integração Radiant
 
@@ -439,11 +537,13 @@ Todas as verificações da seção 5 rodam antes do primeiro efeito. As da
 integração rodam primeiro, sem o lock, porque só leem objetos Git do commit
 base, o checkout Radiant e arquivos do usuário, e não tocam o registro. As do
 núcleo rodam depois, sob o lock do projeto. Depois, grava e executa na ordem
-da seção 2.3: `recorded`, `launching`, worktree e sessão, agente, envio e
+da seção 2.3: `recorded`, `launching`, branch and worktree, the preparation
+of section 2.6 without the project lock, sessão, agente, envio e
 `launched`.
 
 - `0`: agente iniciado e pedido enviado; devolve a tarefa gravada.
-- `1`: `launch-failed` (com `created`), agente bloqueado no startup
+- `1`: `launch-failed` (com `created`), including a failed preparation,
+  agente bloqueado no startup
   (`request_sent: false`) ou envio sem confirmação (`request_sent: unknown`).
 - `2`: recusa.
 
@@ -470,10 +570,11 @@ pedido não sai.
 Sem IDs, lista as tarefas que não estão `closed`; `--all` inclui as
 `closed`.
 
-`status` não espera pelo lock nem grava nada, mas tenta pegá-lo sem esperar
-e o solta em seguida. Com o lock livre, uma tarefa em `recorded` ou
-`launching` foi interrompida e aparece com `interrupted: true`; com o lock
-ocupado, pode ser um `dispatch` em curso e aparece como está.
+`status` não espera pelo lock nem grava nada. Since revision 0.15, for each
+task in `recorded` or `launching` it tries that task's lock (section 2.3)
+without waiting and releases it at once. With the task lock free, the task
+was interrupted and shows `interrupted: true`; with it held, a `dispatch` is
+running, possibly in its preparation, and the task shows as it is.
 
 - `0`: leitura feita e nenhuma tarefa pede atenção.
 - `1`: alguma tarefa `interrupted` ou `launch-failed`, ou `launched` ou `collected` com
@@ -570,6 +671,11 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | `resume` com pedido já enviado ou `request_sent: unknown` | `request-already-sent` | Núcleo |
 | `resume` com agente `lost` | `task-lost` | Núcleo |
 | `close` com agente `working` | `task-working` | Núcleo |
+| `.demerzel.json` at the base commit is not JSON or breaks section 2.6 | `project-config-invalid` | Núcleo |
+
+A `resume` or `close` of a task in `launching` whose `dispatch` still holds
+the task lock is `wrong-lifecycle`, as in the matrix of section 4, and the
+message says that a `dispatch` is still running.
 
 ## 6. Segurança e egress
 
@@ -586,6 +692,12 @@ Recusas que esta Spec acrescenta, todas sem efeito:
   ela foi usada.
 - Nenhuma telemetria. Mensagens de erro trazem paths, IDs, regra violada e
   ação sugerida, sem conteúdo de contrato.
+- The preparation of section 2.6 is the only thing Demerzel runs from the
+  project, and only the commands committed in `.demerzel.json` at the base
+  commit. They run with the user's environment and network, as when the
+  human prepares a worktree by hand, so trusting a project to dispatch is
+  also trusting its preparation. Their output stays in the registry log and
+  is never sent to the harness or printed by Demerzel.
 
 ## 7. Verificação
 
@@ -647,6 +759,22 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    aceite. Evidência: registro, snapshot do herdr, relatórios, diffs e a
    execução da suíte 1. Antes, o AIKM sobe o pin para uma revisão do Radiant
    com `radiant-units` e o CLI de validação.
+10. **Preparation.** With the fake backend and a fake project: the commands
+    of `.demerzel.json` run in order in the worktree, before the backend's
+    first session effect, with the log written; no file and an empty
+    `prepare` run nothing; each rule of section 2.6 broken is
+    `project-config-invalid` with no effect; a failing command, a signal, a
+    program that cannot start and the time limit each lead to
+    `launch-failed` with branch and worktree in `created` and no session
+    effect; a second `dispatch` of an independent task completes while the
+    first one is still preparing; `status` shows the preparing task
+    without `interrupted` and the killed one with it; recovery takes a
+    killed preparation to `launch-failed` and leaves a live one alone. In
+    the herdr backend, with the fake herdr: Codex opens its workspace in the
+    worktree and the Claude Code hook only prints the path. The herdr
+    scenario creates and prepares the worktree for both modes before the
+    agent, and the smoke shows a real agent of each harness reading a file
+    the preparation wrote.
 
 ## 8. Fora do primeiro incremento
 
@@ -798,3 +926,16 @@ A mesma verificação levou a três esclarecimentos, sem decisão nova: o pin
 validado é o da linha `PASS:` do gate, e a integração não relê o mapa do
 chamador; `branch_prefix: null` é tipo errado; o glob `TC-NNNN-*.md` aceita o
 sufixo vazio.
+
+Revision 0.15, 2026-11-14, for
+[faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30), after
+the [prepared worktree probe](verification/2026-11-14-prepared-worktree-probe.md).
+Approved by the owner on 2026-11-14; they hold when the owner approves the
+PR of TC-0004:
+
+| Question | Decision |
+| --- | --- |
+| Where the preparation is declared | `.demerzel.json` at the project root, read from the base commit, with commands as argv lists and no shell. Alternative discarded: a per-project key in the user's `config.json`, which is not versioned with the project |
+| When it runs | After the worktree exists and before the session opens. The core creates the worktree with `git worktree add` for both harnesses; the Claude Code hook only prints the path. Alternative discarded: running it inside the `WorktreeCreate` hook for Claude Code and after `herdr worktree create` for Codex, two paths under the hook's timeout |
+| Failed or timed out preparation | `launch-failed` with branch and worktree in `created`, no session or agent, exit `1`; output only in a registry log; fixed limit of 10 minutes. Alternative discarded: starting the agent anyway with a warning |
+| Lock during the preparation | A task lock held by the `dispatch` for its whole run; the project lock is released while the preparation runs. Recovery and `status` read the task lock. Alternative discarded: preparing under the project lock, which refuses a parallel `dispatch` with `project-locked` after 30 s |
