@@ -1,6 +1,6 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.6, 2026-11-14
+Revisão do Plan: 0.7, 2026-11-14
 Spec: [revisão 0.14](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -21,6 +21,7 @@ PR #16 antes do incremento 5.
 Revision 0.5 drops the manual baseline from increment 6, by owner decision.
 Revision 0.6 closes increment 6, records the owner's decision to continue,
 and orders the open issues by risk.
+Revision 0.7 adds the Codex update prompt as increment 8.
 
 ## Feito
 
@@ -32,7 +33,7 @@ and orders the open issues by risk.
 - 3, núcleo ([faelplg/demerzel#9](https://github.com/faelplg/demerzel/pull/9), [faelplg/demerzel#10](https://github.com/faelplg/demerzel/pull/10), [faelplg/demerzel#11](https://github.com/faelplg/demerzel/pull/11), [faelplg/demerzel#12](https://github.com/faelplg/demerzel/pull/12)): TC-0001 em DONE, com 142 testes do núcleo e quatro verificações independentes, três no Codex e a última, com PASS, no Antigravity.
 - 4, backend herdr e smoke ([faelplg/demerzel#13](https://github.com/faelplg/demerzel/pull/13), [faelplg/demerzel#14](https://github.com/faelplg/demerzel/pull/14), [faelplg/demerzel#15](https://github.com/faelplg/demerzel/pull/15), [faelplg/demerzel#16](https://github.com/faelplg/demerzel/pull/16)): TC-0002 em DONE, com o backend herdr, `resume`, `status`, `wait`, `collect` e `close` no CLI, o cenário contra o herdr real em 16/16 e o smoke com 0 de 5 intervenções no Claude Code e no Codex. Treze verificações independentes, doze no Codex com FAIL e a última, com PASS, no Antigravity; uma emenda do owner ao contrato mudou o `close` do núcleo.
 - 5, integração Radiant ([faelplg/demerzel#22](https://github.com/faelplg/demerzel/pull/22), [faelplg/demerzel#23](https://github.com/faelplg/demerzel/pull/23), [faelplg/demerzel#24](https://github.com/faelplg/demerzel/pull/24)): TC-0003 em DONE, com a correção do achado P1 no `resume`, `src/radiant/` e o `dispatch` no CLI, testados contra o Radiant real no pin, local e no CI. Duas verificações independentes no Codex: a primeira com FAIL e dois achados corrigidos, a segunda confirmando as correções; quatro decisões do owner sobre códigos de recusa entraram na Spec 0.14, e uma emenda do owner ao contrato aceitou `src/radiant/python.ts` no teste de fronteira de processos.
-- 6, smallest experiment ([faelplg/demerzel#27](https://github.com/faelplg/demerzel/issues/27), [faelplg/aikm#45](https://github.com/faelplg/aikm/pull/45)): TC-0025 in AIKM dispatched its three units through Demerzel, and the orchestrator accepted all three. Units 1 and 2 were the experiment's two independent units, in parallel on Claude Code and Codex; unit 3 depended on both and ran on Claude Code after them. No Frame refutation condition was refuted: owner time and the split amendments came out inconclusive, and the other three held. The Codex update prompt stopped every Codex launch, and Demerzel reported it as `blocked` without sending the request. The Learn Back candidates for Demerzel became [faelplg/demerzel#29](https://github.com/faelplg/demerzel/issues/29) and [faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30). The record is in TC-0025, section Demerzel experiment.
+- 6, smallest experiment ([faelplg/demerzel#27](https://github.com/faelplg/demerzel/issues/27), [faelplg/aikm#45](https://github.com/faelplg/aikm/pull/45)): TC-0025 in AIKM dispatched its three units through Demerzel, and the orchestrator accepted all three. Units 1 and 2 were the experiment's two independent units, in parallel on Claude Code and Codex; unit 3 depended on both and ran on Claude Code after them. No Frame refutation condition was refuted: owner time and the split amendments came out inconclusive, and the other three held. The Codex update prompt stopped every Codex launch, and Demerzel reported it as `blocked` without sending the request. The Learn Back candidates for Demerzel became [faelplg/demerzel#29](https://github.com/faelplg/demerzel/issues/29) and [faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30), the Codex update prompt became [faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43), and the Learn Back to Radiant is [faelplg/radiant#28](https://github.com/faelplg/radiant/issues/28). The record is in TC-0025, section Demerzel experiment.
 
 ## Próximos
 
@@ -43,7 +44,7 @@ verificação da Spec, seção 7, tem um incremento dono, inclusive quando a
 mesma verificação é dividida entre núcleo e integração.
 
 The second increment, decided by the owner on 2026-11-14 at the stopping
-point after increment 6. The order follows risk: first the two Learn Backs
+point after increment 6. The order follows risk: first the three Learn Backs
 from TC-0025, which every dispatch hits, then the read-only views, and last
 the changes that open egress questions. Each one changes the Spec before its
 Build; whether it needs a Task Contract is decided when it comes next.
@@ -52,21 +53,24 @@ Build; whether it needs a Task Contract is decided when it comes next.
    ([faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30)).
    Every TC-0025 unit started without `node_modules` and improvised its own
    install.
-8. Launch units as tabs in the project's herdr workspace
+8. Launch Codex without stopping at its update prompt
+   ([faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43)).
+   The update prompt stopped every Codex launch in TC-0025.
+9. Launch units as tabs in the project's herdr workspace
    ([faelplg/demerzel#29](https://github.com/faelplg/demerzel/issues/29)).
-9. List a contract's units with the state of each one
-   ([faelplg/demerzel#37](https://github.com/faelplg/demerzel/issues/37)).
-   Read-only.
-10. Local dashboard that feeds the particle robot from `demerzel status --json`
+10. List a contract's units with the state of each one
+    ([faelplg/demerzel#37](https://github.com/faelplg/demerzel/issues/37)).
+    Read-only.
+11. Local dashboard that feeds the particle robot from `demerzel status --json`
     ([faelplg/demerzel#33](https://github.com/faelplg/demerzel/issues/33)).
-    Read-only; it draws the list from 9 once 9 exists.
-11. Record the orchestrator's and verifier's verdict on a collected task
+    Read-only; it draws the list from 10 once 10 exists.
+12. Record the orchestrator's and verifier's verdict on a collected task
     ([faelplg/demerzel#36](https://github.com/faelplg/demerzel/issues/36)).
     The judgment stays outside Demerzel.
-12. Record usage and cost per task by harness and model
+13. Record usage and cost per task by harness and model
     ([faelplg/demerzel#35](https://github.com/faelplg/demerzel/issues/35)).
     Depends on what each harness exposes to a non-interactive CLI.
-13. Pause, continue and send a follow-up to a dispatched session
+14. Pause, continue and send a follow-up to a dispatched session
     ([faelplg/demerzel#34](https://github.com/faelplg/demerzel/issues/34)).
     Last: a follow-up meets the egress rule of Spec sections 2.2 and 8.
 
