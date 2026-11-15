@@ -101,7 +101,7 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   o mesmo registro.
 - Dentro do projeto: `tasks/<id>.json`, um arquivo por tarefa, gravado por
   arquivo temporário e rename; `worktrees/<id>/`, os worktrees criados; e
-  `lock`. Since revision 0.15, also `tasks/<id>.lock`, the task lock, and
+  `lock`. Since revision 0.15, also `locks/<id>.lock`, the task lock, and
   `logs/<id>/prepare.log`, the output of the preparation (section 2.6).
 - O lock serializa todo comando que grava no registro: `dispatch`, `resume`,
   `collect` e `close`. `status` e `wait` só leem e não o pegam; como cada
@@ -119,16 +119,30 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   `launch-failed`, inclusive durante o envio, with one exception: it
   releases the project lock while the preparation runs (section 2.6) and
   takes it back, with the same 30 s wait, before the next record.
-- Task lock: an `flock(LOCK_EX)` on `tasks/<id>.lock`, taken without
-  waiting by the `dispatch` of that task while it holds the project lock and
-  before it writes `recorded`, and held until its last record. It tells a
-  live `dispatch` from an interrupted one, which the project lock alone can
-  no longer do once it is released during the preparation. Only the holder
-  of a task lock writes that task's file; a command that writes another
-  task, as in a recovery, first takes that task's lock without waiting. If
-  the project lock cannot be taken back after the preparation, the
+- Task lock: an `flock(LOCK_EX)` on `locks/<id>.lock`. It tells a live
+  `dispatch` from an interrupted one, which the project lock alone can no
+  longer do once it is released during the preparation. Only the holder of
+  a task lock writes that task's file, and every writer reads the task file
+  only after it holds that task's lock, so no write starts from a stale copy.
+  A task lock is never waited for while the project lock is held, so no
+  command can block a `dispatch` that needs the project lock back. Creating
+  a lock file is not an effect, like the project's `lock`; a task with no
+  lock file has a free task lock. Only the holder stamps the file with its
+  pid and time, for diagnosis.
+
+  | Command | Order | Task lock busy | Reads the task | Releases |
+  | --- | --- | --- | --- | --- |
+  | `dispatch`, own task | project lock (30 s wait), then the task lock without waiting, before `recorded` | cannot happen: the ID is new, else `task-exists` | it writes the first copy | after its last record |
+  | `dispatch`, preparation | releases the project lock after `prepare_started_at`, keeps the task lock, takes the project lock back with a 30 s wait | | | the project lock again after its last record |
+  | `resume`, `collect`, `close` | project lock (30 s wait), then the target's task lock without waiting | `task-busy`, no effect | after taking the task lock | after their last record |
+  | Recovery inside `dispatch`, `resume`, `close` | under the project lock, each task in `recorded` or `launching`: its task lock without waiting | the task is skipped and left as it is | after taking its task lock, and the lifecycle is checked again | at the end of the command, after publishing or without publishing |
+  | `status` | no project lock; each task in `recorded` or `launching`: opens an existing lock file read-only, tries the task lock without waiting, releases it at once | the task shows as it is | before, without a lock | at once |
+
+  If the project lock cannot be taken back after the preparation, the
   `dispatch` still holds its task lock, so it records `launch-failed` with
-  the reason and `created` as it is, and exits with `1`.
+  the reason and `created` as it is, and exits with `1`. A `status` that
+  holds a task lock for that instant can make a recovery skip the task;
+  the task stays as it is until the next command recovers it.
 - Cada tarefa registra: a tarefa recebida, o pedido final, harness, modelo,
   esforço aplicado ou omitido, base (ref e commit), branch, path do worktree,
   IDs no backend (workspace, aba, pane, nome do agente), `provenance`, ciclo de
@@ -146,9 +160,12 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   projeto nem registro, e a recusa é `not-a-project`.
 - Recuperação: `dispatch`, `resume` e `close`, os comandos que pegam o lock e
   falam com o backend, ao encontrar tarefa em `recorded` ou `launching` take
-  its task lock without waiting. If they get it, the task's `dispatch` was
-  interrupted, because a live one would hold it; if they do not, a
-  `dispatch` is still running and the task is left as it is. Antes de agir,
+  its task lock without waiting, by the table above. If they get it, they
+  read the task again and, if it is still in `recorded` or `launching`, its
+  `dispatch` was interrupted, because a live one would hold the lock; if
+  they do not, the task is left as it is. A recovery is published only when
+  the command gets past all of its refusals; a refused command writes
+  nothing, and the task stays for the next one. Antes de agir,
   gravam a recuperação e o motivo `interrupted`
   no histórico. `collect` não recupera e só grava a própria tarefa:
   - `recorded`: `launch-failed` com `created` vazio, porque nenhum efeito
@@ -361,32 +378,52 @@ what runs is what was committed at the commit being dispatched:
   non-empty list of strings, an argv with no shell: no expansion, no
   pipes, no redirection. No string is empty or holds a NUL. An absent
   `prepare`, or an empty list, prepares nothing.
-- File absent at the base commit: no preparation, as before revision 0.15.
-- A file that is not JSON or breaks any rule above is the refusal
-  `project-config-invalid`, before the first effect. The message names the
-  file, the commit and the rule, never the values.
+- File absent at the base commit, that is, the commit's root tree read
+  successfully with no `.demerzel.json` entry: no preparation, as before
+  revision 0.15. The entry must be a regular file (mode `100644` or
+  `100755`).
+- An entry of another type, such as a symlink, a directory or a submodule, a
+  Git error reading the tree or the blob, a file that is not JSON, or one
+  that breaks any rule above is the refusal `project-config-invalid`,
+  before the first effect. The message names the file, the commit and the
+  rule, never the values.
 - The commands are recorded in `recorded`, with the commit they came from,
   before the first effect, and are never read again for the same task.
 
 Run by the core, after the worktree exists and before the session opens:
 
 1. The core creates the branch and the worktree for every harness with
-   `git -C <project> worktree add -b <branch> <path> <commit base>`, and
-   records both in `created`. Before revision 0.15 the backend created them,
-   in a different way per harness.
+   `git -C <project> -c core.hooksPath=<an empty folder> worktree add -b <branch> <path> <commit base>`,
+   and records both in `created`. No Git hook runs, so `.demerzel.json` is
+   the one declared place for setup; checkout filters, such as a Git LFS
+   smudge, still run as configured, because they are part of what checking
+   out the commit means. Before revision 0.15 the backend created them, in
+   a different way per harness, with the project's hooks.
 2. It records `prepare_started_at` and releases the project lock, keeping
    the task lock (section 2.3).
 3. It runs each command with the worktree as its cwd, stdin from
-   `/dev/null`, Demerzel's own environment, and its own process group. The
+   `/dev/null`, Demerzel's own environment, and its own process group,
+   recording the group's ID before the command starts. The
    program is found on `PATH`, or, when it holds a `/`, relative to the
    worktree. Standard output and error go, in order, to
    `logs/<id>/prepare.log` in the project's registry, with one header line
    per command giving its index; nothing goes to Demerzel's own output.
-4. It stops at the first command that exits with a code other than `0`, is
-   ended by a signal, or cannot start. The whole preparation has a fixed
-   limit of 10 minutes; past it, the process group receives `SIGTERM`, then
-   `SIGKILL` 5 s later.
-5. It takes the project lock back and records the outcome: each command run
+4. A command is done when its leader exits and its process group is
+   empty. If any process of the group is left, the group receives
+   `SIGTERM`, then `SIGKILL` 5 s later, and the command fails with "left
+   processes running", whatever its exit code. A process that leaves the
+   group, as with `setsid`, is not seen.
+5. It stops at the first command that exits with a code other than `0`, is
+   ended by a signal, cannot start, or leaves processes running. The whole
+   preparation, all commands together, has a fixed limit of 10 minutes;
+   past it, the running command's group receives `SIGTERM`, then `SIGKILL`
+   5 s later.
+6. It checks that the preparation kept the task's identity: the branch
+   still points to the base commit, and the worktree's `HEAD` is that
+   branch at that commit, for both harnesses. Untracked and ignored files,
+   such as installed dependencies, are allowed. If it does not hold, the
+   preparation failed.
+7. It takes the project lock back and records the outcome: each command run
    with its exit code or signal and its duration, and the log path.
 
 A failed preparation takes the task to `launch-failed`, with `created`
@@ -399,7 +436,10 @@ An interrupted preparation, such as a `dispatch` killed while a command
 runs, leaves the task in `launching` with `prepare_started_at` and its task
 lock free; the recovery of section 2.3 takes it to `launch-failed` with the
 branch and the worktree in `created`. A command still running from the
-killed `dispatch` is not stopped by the recovery.
+killed `dispatch` is not stopped by the recovery, and `close` keeps its
+behavior; the recovery's reason names the recorded process group, so the
+human can check whether it is still running before discarding the
+worktree.
 
 The preparation does not change what the request carries (section 2.2), but
 it runs commands from the project with the user's environment, with the
@@ -572,7 +612,8 @@ Sem IDs, lista as tarefas que não estão `closed`; `--all` inclui as
 
 `status` não espera pelo lock nem grava nada. Since revision 0.15, for each
 task in `recorded` or `launching` it tries that task's lock (section 2.3)
-without waiting and releases it at once. With the task lock free, the task
+without waiting and releases it at once, opening an existing lock file
+read-only, never creating or stamping one. With the task lock free, the task
 was interrupted and shows `interrupted: true`; with it held, a `dispatch` is
 running, possibly in its preparation, and the task shows as it is.
 
@@ -671,11 +712,8 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | `resume` com pedido já enviado ou `request_sent: unknown` | `request-already-sent` | Núcleo |
 | `resume` com agente `lost` | `task-lost` | Núcleo |
 | `close` com agente `working` | `task-working` | Núcleo |
-| `.demerzel.json` at the base commit is not JSON or breaks section 2.6 | `project-config-invalid` | Núcleo |
-
-A `resume` or `close` of a task in `launching` whose `dispatch` still holds
-the task lock is `wrong-lifecycle`, as in the matrix of section 4, and the
-message says that a `dispatch` is still running.
+| `.demerzel.json` at the base commit unreadable, not a regular file, not JSON, or breaking section 2.6 | `project-config-invalid` | Núcleo |
+| `resume`, `collect` or `close` of a task whose task lock another command holds, such as a live `dispatch` | `task-busy` | Núcleo |
 
 ## 6. Segurança e egress
 
@@ -762,14 +800,21 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
 10. **Preparation.** With the fake backend and a fake project: the commands
     of `.demerzel.json` run in order in the worktree, before the backend's
     first session effect, with the log written; no file and an empty
-    `prepare` run nothing; each rule of section 2.6 broken is
-    `project-config-invalid` with no effect; a failing command, a signal, a
-    program that cannot start and the time limit each lead to
+    `prepare` run nothing; each rule of section 2.6 broken, a symlink or
+    directory entry and an unreadable object are `project-config-invalid`
+    with no effect; a failing command, a signal, a program that cannot
+    start, a command that exits `0` leaving a child running, the time limit
+    across commands and a preparation that moves `HEAD` each lead to
     `launch-failed` with branch and worktree in `created` and no session
-    effect; a second `dispatch` of an independent task completes while the
-    first one is still preparing; `status` shows the preparing task
-    without `interrupted` and the killed one with it; recovery takes a
-    killed preparation to `launch-failed` and leaves a live one alone. In
+    effect; a project `post-checkout` hook does not run; a second
+    `dispatch` of an independent task completes while the first one is
+    still preparing; `resume`, `collect` and `close` of a task whose lock
+    is held are `task-busy`; `status` shows the preparing task without
+    `interrupted` and the killed one with it, and creates no lock file;
+    recovery takes a killed preparation to `launch-failed` and leaves a live
+    one alone, a refused command publishes no recovery, and a recovery
+    that read a task before its `dispatch` recorded `launch-failed` does not
+    overwrite it. In
     the herdr backend, with the fake herdr: Codex opens its workspace in the
     worktree and the Claude Code hook only prints the path. The herdr
     scenario creates and prepares the worktree for both modes before the
@@ -939,3 +984,16 @@ PR of TC-0004:
 | When it runs | After the worktree exists and before the session opens. The core creates the worktree with `git worktree add` for both harnesses; the Claude Code hook only prints the path. Alternative discarded: running it inside the `WorktreeCreate` hook for Claude Code and after `herdr worktree create` for Codex, two paths under the hook's timeout |
 | Failed or timed out preparation | `launch-failed` with branch and worktree in `created`, no session or agent, exit `1`; output only in a registry log; fixed limit of 10 minutes. Alternative discarded: starting the agent anyway with a warning |
 | Lock during the preparation | A task lock held by the `dispatch` for its whole run; the project lock is released while the preparation runs. Recovery and `status` read the task lock. Alternative discarded: preparing under the project lock, which refuses a parallel `dispatch` with `project-locked` after 30 s |
+| Busy task lock | `resume`, `collect` and `close` refuse with `task-busy`, without waiting on a task lock while holding the project lock. Alternative discarded: releasing the project lock to wait up to 30 s for the task lock |
+| Descendants of a preparation command | A command is done when its process group is empty; survivors are killed and fail the preparation. Alternative discarded: the leader's exit code alone |
+| Git hooks at worktree creation | Suppressed with `core.hooksPath`; checkout filters still run. Alternative discarded: keeping hooks and bounding them like the preparation |
+| Identity after the preparation | Branch and worktree `HEAD` checked against the base commit before any session, for both harnesses. Alternative discarded: only documenting it and relying on the Claude Code launch check |
+
+The four decisions above came from the [critique of TC-0004](verification/2026-11-14-tc-0004-grill.md)
+by Codex in `gpt-6-astra`, role `radiant-grill`: nine objections, all
+accepted by the owner on 2026-11-15. The other five changed the Spec without
+a new decision: the preparation's process group named in the recovery
+reason, rereading a task after taking
+its lock, publishing recovery only past all refusals, the definition of an
+absent `.demerzel.json`, and a read-only `status`.
+
