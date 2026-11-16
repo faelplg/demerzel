@@ -72,6 +72,27 @@ names harness candidates in order and can require `--human-approved`.
 The consumer must ignore `.radiant/` in Git, since each unit writes its report
 to `.radiant/reports/<unit-id>.md` in its worktree.
 
+A project can declare how a fresh worktree is prepared, such as installing
+its dependencies, in `.demerzel.json` at its root:
+
+```json
+{
+  "schema": 1,
+  "prepare": [
+    ["bun", "install", "--frozen-lockfile"]
+  ]
+}
+```
+
+Each command is an argv, run with no shell, in the task's worktree, in order,
+before the session opens. Demerzel reads the file from the base commit, so it
+must be committed there. The output goes to `logs/<id>/prepare.log` in the
+project's registry, never to Demerzel's own output. A command that fails,
+leaves processes running, or passes the 10 minute limit for the whole
+preparation stops the task in `launch-failed`, with the branch and worktree
+kept and no agent started. Without the file, nothing is prepared. This
+repository's own `.demerzel.json` is the example above.
+
 ## Commands
 
 ```sh
@@ -95,14 +116,17 @@ be committed there.
 
 - `dispatch` checks everything first: the Radiant pin, the unit, its
   dependencies, overlapping `writes`, the routing rule, the herdr server, and
-  that the branch and worktree do not exist yet. Then it creates the branch
-  `<branch_prefix><unit-id>` from the base, opens the session, starts the
-  harness and sends the request.
+  that the branch and worktree do not exist yet, and the project's
+  `.demerzel.json`. Then it creates the branch `<branch_prefix><unit-id>` and
+  its worktree from the base, runs the project's preparation there, opens the
+  session, starts the harness and sends the request.
 - `resume` sends the recorded request after a human cleared a startup prompt
   in the unit's tab. Demerzel reports such a prompt as `blocked` and never
   answers it.
-- `status` reads without waiting for the project lock. `wait` returns when
-  each task has a report or has stopped.
+- `status` reads without waiting for any lock. `wait` returns when each task
+  has a report or has stopped. `resume`, `collect` and `close` refuse with
+  `task-busy` a task whose `dispatch` is still running, for example during
+  its preparation.
 - `collect` returns the report with its sha256 digest, without interpreting
   it.
 - `close` closes the herdr workspace and keeps the branch. Only the human
@@ -128,14 +152,15 @@ worktree of the project sees the same tasks as its main checkout.
   carries `hold: true` instead of picking a weaker model.
 - The core in `src/core/` does not know Radiant. Its suite runs with only
   `git` and `bun` on PATH.
+- Worktree creation runs no Git hook; `.demerzel.json` is the one place for
+  setup. The preparation runs the project's own commands with your
+  environment and network.
 - No telemetry.
 
 ## Not supported yet
 
 - Each unit opens its own herdr workspace instead of a tab in the project's
   workspace ([#29](https://github.com/faelplg/demerzel/issues/29)).
-- Dispatched worktrees start without dependencies installed
-  ([#30](https://github.com/faelplg/demerzel/issues/30)).
 - Codex stops at its update prompt on launch
   ([#43](https://github.com/faelplg/demerzel/issues/43)).
 - Follow-ups to a running session, and backends other than herdr.
