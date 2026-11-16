@@ -23,13 +23,13 @@ or evidence, `bun run check` and `bun run test:core` pass, the scenario
 passed in both modes, and every mutation of section 11 was shown failing.
 One change to an existing test falls outside the exception of output 6:
 the boundary test's list of files that may spawn processes (see "Existing
-tests changed"). The owner accepted it on 2026-11-16. The contract's `DONE` still
-waits for the green CI on the Build PR, the smoke with the owner present,
-and the independent critique, which the orchestrator adds here.
+tests changed"). The owner accepted it on 2026-11-16. The green CI, the
+smoke with the owner present and the independent verification, with what
+was done with each finding, were added by the orchestrator below.
 
 ### Changed
 
-Three commits on the entry commit:
+Four commits on the entry commit, and two after the independent verification:
 
 - `cf8c075`, outputs 1 to 6:
   - `src/core/project-config.ts` (new): reads `.demerzel.json` from the base
@@ -91,6 +91,19 @@ Three commits on the entry commit:
     changes below.
 - `ef322e1`, output 8: the scenario and the smoke.
 - `ca2f7a4`, output 7: the README.
+- `0cdc49a`, output 4: the recovery of a preparation interrupted before any
+  process group was recorded says so, instead of naming no group (see
+  "Engineering notes").
+- `5853110`, outputs 1 and 4, after the independent verification: the wait
+  for an empty group ends at the limit, and a group still not empty then
+  fails the command with the time limit, so no later command starts after
+  the limit. Tests: a new case in `test/core/preparation.test.ts` and the
+  script `prep/leave-waiter.ts` in the fixture. The wait's length can be
+  injected by tests only, like the limit and the grace period.
+- `c90c286`, output 4, after the independent verification: a command due once
+  the limit has passed fails with the time limit before it is spawned, so
+  no process group is recorded for it. Test: a new case in
+  `test/core/preparation.test.ts`.
 
 ### Existing tests changed
 
@@ -232,7 +245,9 @@ A dispatch with two preparation commands, reopened from its task file:
   2.6 rules out by running each argv with no shell.
 - A command whose leader has exited gets up to 200 ms for its group to
   empty before what is left counts as left running. That covers children
-  on their way out when the leader's exit is seen.
+  on their way out when the leader's exit is seen. The wait ends at the
+  limit: a group still not empty then is a command running past the limit
+  and fails with it (`5853110`).
 - `dispatch` releases the task locks it took for a recovery right after
   publishing it, not at the end of the command. The recovered tasks are
   already in a final lifecycle, and holding their locks through a long
@@ -305,6 +320,36 @@ received the commit `0e14c69` "smoke preparation fixture", which declares a
 - Leftovers in the disposable repository: 27 worktrees and 17 branches from
   this and earlier smokes, left for the owner.
 
-## Pending, by the orchestrator
+## Independent verification
 
-- The independent critique by a `radiant-verifier` in another harness.
+A `radiant-verifier` in Antigravity CLI 1.5.9 with Gemini 4 Argon verified
+`585620f` against the entry commit and returned DONE, with every acceptance
+criterion passing, the suite, the scenario and all 15 mutations rerun in its
+own clone, and two low findings. Its answer is in
+[2026-11-16-tc-0004-verify-1.md](2026-11-16-tc-0004-verify-1.md).
+
+1. The Changed section left out the code commit `0cdc49a`. Accepted: it is
+   now listed, with what it changed. The mutations ran on `ca2f7a4`, before
+   it, which stays true; `0cdc49a` changed only the text of one recovery
+   message, and the verifier reran every mutation on `585620f`.
+2. The 200 ms wait for an empty group could run past the limit, so a
+   command whose last child left after the limit counted as done, and the
+   next command started and was the one failed with the time limit.
+   Accepted and fixed in `5853110`: the wait ends at the limit, and a group
+   still not empty then fails that command with the time limit. The new
+   test "the limit during the wait for an empty group" failed before the
+   fix by naming command 2, and again with the time-limit branch removed by
+   reporting "left processes running"; it passes three runs in a row, and
+   `bun run check` passes. The verifier also suggested checking the limit
+   before each command starts. Accepted and fixed in `c90c286`: before it, a
+   command due after the limit was spawned and stopped at once by its own
+   timer, against "no later command runs" in Spec 2.6, step 5. The new test
+   "no command starts after the limit" failed before the fix, with command
+   1 spawned and failed by its timer, and passes after it. `bun run check`
+   passes: 216 core tests and 201 in the other suites.
+
+Learn Back candidates from the verifier, for the Radiant owner: include a
+boundary test's allowlist in a contract's exception for changed tests when
+the contract adds a module that crosses that boundary, and check
+`git rev-list <entry>..HEAD` against the report's commit list in the
+readback.
