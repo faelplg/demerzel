@@ -103,8 +103,11 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   arquivo temporário e rename; `worktrees/<id>/`, os worktrees criados; e
   `lock`. Since revision 0.15, also `locks/<id>.lock`, the task lock, and
   `logs/<id>/prepare.log`, the output of the preparation (section 2.6).
-- O lock serializa todo comando que grava no registro: `dispatch`, `resume`,
-  `collect` e `close`. `status` e `wait` só leem e não o pegam; como cada
+- O lock é pego por todo comando que grava no registro: `dispatch`, `resume`,
+  `collect` e `close`. Until revision 0.14 it serialized every write; since
+  revision 0.15 it serializes the decisions about several tasks, and a
+  task file is written by the holder of its task lock, as the next bullets
+  say. `status` e `wait` só leem e não o pegam; como cada
   arquivo de tarefa é trocado por rename, eles nunca leem um arquivo pela
   metade.
 - Since revision 0.15 the two locks split the work. The project lock
