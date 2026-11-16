@@ -4,8 +4,11 @@ Date: 2026-11-14
 Plan: [revision 0.8](../PLAN.md), increment 7
 Issue: [faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30)
 Spec: [revision 0.14](../SPEC.md), before the change
-State: **PASS**. Both harnesses start in a worktree that Demerzel created
-and prepared before the agent, with no dialog, in 5 of 5 launches each.
+State: **PASS**. Both harnesses start with no dialog, in 5 of 5 launches
+each, in a worktree created by `git worktree add` and prepared before the
+agent. The probe script did the steps Demerzel will do, calling Git and
+herdr directly; Demerzel itself was not run, and its own path is proved by
+the TC-0004 scenario and smoke.
 
 ## Question
 
