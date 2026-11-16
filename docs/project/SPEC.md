@@ -573,7 +573,9 @@ esforço, `request_sent` e horários. Numa recusa, `"ok": false` e
 
 Matriz dos comandos que recebem ID. Toda linha também recusa ID sem tarefa
 com `task-not-found`, e os comandos que falam com o backend recusam herdr
-parado com `backend-unavailable`.
+parado com `backend-unavailable`. Since revision 0.15, `resume`, `collect` and `close`
+also refuse with `task-busy` a task whose lock another command holds
+(section 2.3), before any check of the row.
 
 | Comando | Aceita | Recusa, sem efeito |
 | --- | --- | --- |
@@ -877,8 +879,8 @@ Valem quando o owner aprovar o PR desta revisão:
 
 | Questão | Decisão |
 | --- | --- |
-| Worktree do Claude Code | Criado pelo próprio Claude Code com `--worktree` e um hook `WorktreeCreate` passado por `--settings`, com o mesmo path, branch e base do Codex |
-| Worktree do Codex | Sem mudança: `herdr worktree create` |
+| Worktree do Claude Code | Criado pelo próprio Claude Code com `--worktree` e um hook `WorktreeCreate` passado por `--settings`, com o mesmo path, branch e base do Codex. Replaced in revision 0.15: the core creates the worktree, and the hook only prints its path |
+| Worktree do Codex | Sem mudança: `herdr worktree create`. Replaced in revision 0.15: `herdr workspace create` in the worktree the core created |
 | Confiança | Pré-requisito do owner, uma vez por projeto em cada CLI; sai `trusted_repositories` e o backend nunca passa `--trust-repository` |
 | Descarte do worktree | `git worktree remove` sem `--force`, igual nos dois harnesses; recusa do Git sai com `1` e mantém o worktree |
 | Lançamento do Claude Code | Pós-condição de cwd, branch e commit base; se falha, `launch-failed` |
@@ -891,8 +893,8 @@ contrato:
 | Questão | Decisão |
 | --- | --- |
 | Lock do projeto | `flock` do sistema operacional por `bun:ffi`, espera de até 30 s, depois `project-locked`; o kernel solta o lock de processo encerrado. Substitui o lock com pid e retomada da revisão 0.5 |
-| Quem pega o lock | Todo comando que grava: `dispatch`, `resume`, `collect` e `close` |
-| `dispatch` interrompido | Ordem fixa de gravações e recuperação conservadora por quem pega o lock depois, sem relançar nem reenviar |
+| Quem pega o lock | Todo comando que grava: `dispatch`, `resume`, `collect` e `close`. Revision 0.15 adds the task lock and the protocol table of section 2.3; `dispatch` releases the project lock during the preparation |
+| `dispatch` interrompido | Ordem fixa de gravações e recuperação conservadora por quem pega o lock depois, sem relançar nem reenviar. Since revision 0.15, the recovering command must also get the task's lock |
 | Estado observado | Dois campos, `agent` e `report`; `close` recusa agente `working` mesmo com retorno presente |
 | Comandos por ciclo de vida | Matriz da seção 4, com `task-not-found`, `wrong-lifecycle`, `request-already-sent`, `task-lost` e `task-working` |
 | Reuso de ID | Nunca; `task-exists` para qualquer ID registrado |
@@ -905,7 +907,7 @@ em 2026-10-31:
 | --- | --- |
 | Comando fora de um repositório Git | Recusa `not-a-project` |
 | Quem recupera `dispatch` interrompido | Só `dispatch`, `resume` e `close`, que falam com o backend; `collect` não recupera |
-| Tarefa pela metade no `status` | `status` testa o lock sem esperar; com o lock livre, mostra `interrupted: true` e sai com `1` |
+| Tarefa pela metade no `status` | `status` testa o lock sem esperar; com o lock livre, mostra `interrupted: true` e sai com `1`. Replaced in revision 0.15: `status` tests each task's lock, read-only |
 
 Revisão 0.8, 2026-10-31, depois da verificação independente do Build do
 TC-0001. Aprovada pelo owner em 2026-10-31:
