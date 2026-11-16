@@ -325,7 +325,9 @@ Locks (output 4):
 - [ ] L6. `status` shows `interrupted: true` for a task in `recorded` or
   `launching` whose task lock is free, and not for one whose `dispatch` is
   alive, including during its preparation; it creates no lock file and
-  writes nothing.
+  writes nothing. With a barrier, a task read as `launching` whose
+  `dispatch` records `launch-failed` and releases its lock before `status`
+  takes it shows as `launch-failed`, not `interrupted`.
 - [ ] L7. `resume`, `collect` and `close` of a task whose lock another
   process holds are `task-busy`, exit `2`, with no effect, and none of them
   waits on a task lock while holding the project lock.

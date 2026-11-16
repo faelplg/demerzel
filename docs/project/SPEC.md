@@ -153,7 +153,7 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   | `dispatch`, preparation | releases the project lock after `prepare_started_at`, keeps the task lock, takes the project lock back with a 30 s wait | | | the project lock again after its last record |
   | `resume`, `collect`, `close` | project lock (30 s wait), then the target's task lock without waiting | `task-busy`, no effect | after taking the task lock | after their last record |
   | Recovery inside `dispatch`, `resume`, `close` | under the project lock, each task in `recorded` or `launching`: its task lock without waiting | the task is skipped and left as it is | after taking its task lock, and the lifecycle is checked again | at the end of the command, after publishing or without publishing |
-  | `status` | no project lock; each task in `recorded` or `launching`: opens an existing lock file read-only, tries the task lock without waiting, releases it at once | the task shows as it is | before, without a lock | at once |
+  | `status` | no project lock; each task in `recorded` or `launching`: opens an existing lock file read-only, tries the task lock without waiting, releases it at once | the task shows as it is | before, without a lock, and again after taking the task lock; `interrupted: true` only if the reread task is still in `recorded` or `launching`, else it shows the reread task | at once |
 
   If the project lock cannot be taken back after the preparation, the
   `dispatch` still holds its task lock, so it records `launch-failed` with
