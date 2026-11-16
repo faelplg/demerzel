@@ -112,6 +112,9 @@ docs/project/verification/
 
 ### Paths read-only
 
+Read-only for the Build agent. The orchestrator changes `ACTIVE.md` and this
+contract's status line, to activate and to close it, outside the Build.
+
 ```text
 src/radiant/
 src/cli.ts

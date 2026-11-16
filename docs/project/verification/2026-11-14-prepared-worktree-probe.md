@@ -28,7 +28,7 @@ things had to hold before the Spec could say so:
 - Codex 0.169.0 with `gpt-6-astra`, `model_reasoning_effort=low`.
 - The owner's throwaway repository `~/workspaces/demerzel-smoke`, trusted
   once in each CLI for the TC-0002 smoke, at commit `8a8b885`.
-- Worktrees under a scratchpad folder outside any repository, never trusted.
+- Worktrees under a scratchpad folder outside any repository, never trusted, written `<scratchpad>` in the data.
 
 No dialog was answered by the orchestrator.
 
