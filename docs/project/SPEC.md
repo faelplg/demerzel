@@ -446,7 +446,9 @@ Run by the core, after the worktree exists and before the session opens:
    ended by a signal, cannot start, or leaves processes running. The whole
    preparation, all commands together, has a fixed limit of 10 minutes;
    past it, the running command's group receives `SIGTERM`, then `SIGKILL`
-   5 s later.
+   5 s later, and the preparation fails with the time limit as its reason,
+   whatever the command's exit code after the signal; no later command
+   runs, and the identity check does not run.
 6. It checks that the preparation kept the task's identity: the branch
    still points to the base commit, and the worktree's `HEAD` is that
    branch at that commit, for both harnesses. Untracked and ignored files,
