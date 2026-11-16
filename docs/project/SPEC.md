@@ -400,10 +400,12 @@ Run by the core, after the worktree exists and before the session opens:
    out the commit means. A filter's command comes from the user's Git
    configuration, not from the commit, which only names the filter in
    `.gitattributes`. It runs under the project lock with no time limit of
-   Demerzel's own and its output goes to Git's stderr, as with
-   `herdr worktree create` before revision 0.15; a failing filter fails
-   `git worktree add`, and the task goes to `launch-failed` with what
-   exists in `created`. Before revision 0.15 the backend created them, in
+   Demerzel's own, as with `herdr worktree create` before revision 0.15. Its
+   output is part of Git's own output, which the core captures from
+   `git worktree add` like from any Git call, outside `prepare.log`, and
+   never prints. A failing filter fails `git worktree add`, and the task
+   goes to `launch-failed` with what exists in `created` and the summary of
+   Git's error in the reason, as for any Git failure. Before revision 0.15 the backend created them, in
    a different way per harness, with the project's hooks.
 2. It records `prepare_started_at` and releases the project lock, keeping
    the task lock (section 2.3).
@@ -746,8 +748,10 @@ Recusas que esta Spec acrescenta, todas sem efeito:
   with the commands the user's own Git configuration gives them (section
   2.6). They run with the user's environment and network, as when the
   human prepares a worktree by hand, so trusting a project to dispatch is
-  also trusting its preparation. Their output stays in the registry log and
-  is never sent to the harness or printed by Demerzel.
+  also trusting its preparation. The output of the preparation commands
+  stays in `prepare.log` in the registry; a filter's output stays in Git's
+  output captured by the core (section 2.6). Neither is sent to the harness
+  or printed by Demerzel.
 
 ## 7. Verificação
 
