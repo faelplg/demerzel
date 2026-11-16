@@ -159,7 +159,11 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   `dispatch` still holds its task lock, so it records `launch-failed` with
   the reason and `created` as it is, and exits with `1`. A `status` that
   holds a task lock for that instant can make a recovery skip the task;
-  the task stays as it is until the next command recovers it.
+  the task stays as it is until the next command recovers it. It touches
+  only tasks in `recorded` or `launching`, so it can never hold the lock of
+  a new task's `dispatch`. A `resume`, `collect` or `close` that meets it
+  gets `task-busy`, a refusal with no effect, for a task those commands
+  refuse anyway by lifecycle.
 - Cada tarefa registra: a tarefa recebida, o pedido final, harness, modelo,
   esforço aplicado ou omitido, base (ref e commit), branch, path do worktree,
   IDs no backend (workspace, aba, pane, nome do agente), `provenance`, ciclo de
