@@ -303,6 +303,9 @@ Locks (output 4):
 - [ ] L2. The project lock is free while the preparation runs: another
   `dispatch` of an independent task, in another process, completes while
   the first one is still preparing.
+- [ ] L0. The split of Spec 2.3 holds: no write that rests on a decision
+  about other tasks happens without the project lock, and the only writes
+  without it are a `dispatch` writing its own task file.
 - [ ] L3. If the project lock cannot be taken back within 30 s after the
   preparation, the task goes to `launch-failed` with that reason, recorded
   under the task lock, and `dispatch` exits `1`.
@@ -442,7 +445,7 @@ done with each go in the report. Self-review does not count.
 
 The task can only be declared `DONE` when:
 
-- [ ] each requirement F1 to F5, W1 to W5, P1 to P9, L1 to L8 and B1 has a
+- [ ] each requirement F1 to F5, W1 to W5, P1 to P9, L0 to L8 and B1 has a
   test or evidence, linked in the traceability table;
 - [ ] `bun run check` passes in a clean clone, and `bun run test:core`
   still runs without `python3`;

@@ -107,6 +107,20 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   `collect` e `close`. `status` e `wait` só leem e não o pegam; como cada
   arquivo de tarefa é trocado por rename, eles nunca leem um arquivo pela
   metade.
+- Since revision 0.15 the two locks split the work. The project lock
+  serializes the decisions that read several tasks: the refusals of
+  `dispatch` (ID, dependencies, `writes`, branch, worktree, agent name) and
+  the planning of a recovery. A task file is written only by the holder of
+  that task's lock, and the registry has no file shared between tasks:
+  each task has its own task file, lock file and log. So a write needs the
+  project lock only when it rests on a decision about other tasks. Every
+  write of a `dispatch` after `recorded` touches only its own task, and the
+  cross-task facts other commands read from it, its ID, `writes`, branch and
+  worktree, are fixed in `recorded` and never change. That is why a
+  `dispatch` may record its own `launch-failed` under the task lock alone
+  when it cannot take the project lock back: a reader holding the project
+  lock sees the task file before or after the rename, `launching` or
+  `launch-failed`, and both reserve the same `writes`.
 - O lock é um `flock(LOCK_EX)` do sistema operacional no arquivo `lock`,
   pedido sem bloquear e repetido em intervalo curto por até 30 s. O kernel
   solta o lock quando o processo termina, de qualquer jeito, então não existe
