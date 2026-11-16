@@ -276,8 +276,35 @@ existing tests should name the boundary test that lists those places. Here
 the test had to change for a requirement of the same contract, and the
 exception did not cover it.
 
+## CI
+
+Run 43931598001 on PR #49 at `f0071ea`: `check (macos-latest)` and
+`check (ubuntu-latest)` pass
+(https://github.com/faelplg/demerzel/actions/runs/43931598001).
+
+## Smoke
+
+`bun run smoke:herdr` with the owner present, 2026-11-16, exit 0. Versions:
+herdr 0.9.5, Claude Code 2.1.311, Codex 0.169.0. The disposable repository
+received the commit `0e14c69` "smoke preparation fixture", which declares a
+`.demerzel.json` whose command writes a file in the worktree.
+
+- Short launches: 10 of 10 delivered (5 Codex, 5 Claude Code), each with
+  `request_sent=true` and the agent working, in 5.3 s to 6.0 s.
+- Concurrency: for both harnesses a second dispatch returned 0 while the
+  first agent worked, and the first one's close was refused with
+  `task-working`.
+- Returns: 10 of 10.
+- Preparation: `SMK-2611161905-xprep` (Codex) and `SMK-2611161905-cprep`
+  (Claude Code) recorded `preparation: succeeded`, the prepared file existed
+  before the session opened, and each agent read it back with exactly the
+  expected content ("prepared in <its worktree>").
+- Launch postcondition with a project hook that moves the agent's cwd:
+  `launch-failed`, naming the cwd and the worktree, as expected.
+- Closes: 17 of 17 returned 0.
+- Leftovers in the disposable repository: 27 worktrees and 17 branches from
+  this and earlier smokes, left for the owner.
+
 ## Pending, by the orchestrator
 
-- The CI link on the Build PR.
-- The smoke, with the owner present.
 - The independent critique by a `radiant-verifier` in another harness.
