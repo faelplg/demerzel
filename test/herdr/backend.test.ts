@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { close, dispatch, status } from "../../src/core/index.ts";
 import { BackendError, type LaunchPlan } from "../../src/core/backend.ts";
@@ -8,6 +8,7 @@ import { git } from "../../src/core/git.ts";
 import { resolveProject } from "../../src/core/project.ts";
 import { HerdrBackend, hookSettings, shQuote, versionAtLeast } from "../../src/herdr/backend.ts";
 import { parseHerdrConfig } from "../../src/herdr/config.ts";
+import { prepareFixture } from "../core/helpers/prepare-fixture.ts";
 import { sandbox, task, type Sandbox } from "../core/helpers/sandbox.ts";
 import { installFakeHerdr, type FakeHerdr } from "./helpers/fake.ts";
 
@@ -39,7 +40,14 @@ function plan(overrides: Partial<LaunchPlan> = {}): LaunchPlan {
   };
 }
 
+// Since Spec 0.15 the core creates the branch and the worktree before the
+// backend launches, so each direct launch gets them first, as dispatch does.
+// A path with a line break is left out: the backend must refuse it first.
 async function launch(backend: HerdrBackend, p: LaunchPlan) {
+  if (!/[\n\r]/.test(p.worktreePath) && !existsSync(p.worktreePath)) {
+    const added = git(p.mainCheckout, ["worktree", "add", "-q", "-b", p.branch, p.worktreePath, p.baseCommit], sb.env);
+    if (added.code !== 0) throw new Error(`git worktree add: ${added.stderr}`);
+  }
   const created: Created[] = [];
   const outcome = await backend.launch(p, backend.prepare(p), (r) => created.push(r));
   return { outcome, created, kinds: created.map((c) => c.kind) };
@@ -402,26 +410,29 @@ describe("prepare (H4)", () => {
 
 describe("launch (H5, H6, H7)", () => {
   // Protects: the Codex arguments of Spec 2.5 and the order of resources.
-  // Fails if a flag changes or a resource is reported late.
+  // Since revision 0.15 the session opens in the worktree the core created,
+  // and the backend creates no worktree (W2). Fails if a flag changes, a
+  // resource is reported late, or herdr worktree create comes back.
   test("codex", async () => {
     const be = herdr(null);
     const p = plan();
     const { outcome, kinds } = await launch(be, p);
     expect(outcome).toEqual({ kind: "ready", ids: { workspace: "w1", tab: "w1:t1", pane: "w1:p1" } });
-    expect(kinds).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    expect(kinds).toEqual(["workspace", "tab", "pane", "agent"]);
     const [create, start] = fake.calls();
-    expect(create).toEqual(["worktree", "create", "--cwd", sb.repo, "--branch", p.branch, "--base", p.baseCommit, "--path", p.worktreePath, "--label", p.label, "--no-focus"]);
+    expect(create).toEqual(["workspace", "create", "--cwd", p.worktreePath, "--label", p.label, "--no-focus"]);
     expect(start).toEqual(["agent", "start", p.agentName, "--kind", "codex", "--pane", "w1:p1", "--timeout", "90000", "--", "--model", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"]);
   });
 
-  // Protects: the Claude Code arguments and the hook-created worktree.
-  // Fails if the worktree flags, settings or order change.
+  // Protects: the Claude Code arguments, with the agent entering the
+  // worktree the core created through the hook. Fails if the worktree flags,
+  // settings or order change, or the backend reports a worktree.
   test("claude-code", async () => {
     const be = herdr(null);
     const p = plan({ harness: "claude-code", model: "claude-sonnet-5-5", effort: "low" });
     const { outcome, kinds } = await launch(be, p);
     expect(outcome.kind).toBe("ready");
-    expect(kinds).toEqual(["workspace", "tab", "pane", "worktree", "agent"]);
+    expect(kinds).toEqual(["workspace", "tab", "pane", "agent"]);
     const [create, start] = fake.calls();
     expect(create).toEqual(["workspace", "create", "--cwd", sb.repo, "--label", p.label, "--no-focus"]);
     expect(start).toEqual(["agent", "start", p.agentName, "--kind", "claude", "--pane", "w1:p1", "--timeout", "90000", "--", "--worktree", p.agentName, "--settings", hookSettings(p), "--model", "claude-sonnet-5-5", "--effort", "low"]);
@@ -435,15 +446,22 @@ describe("launch (H5, H6, H7)", () => {
     expect(cwd.outcome.kind).toBe("failed");
     expect(cwd.outcome.kind === "failed" && cwd.outcome.reason).toContain("cwd do agente");
 
+    // No branch and no worktree: the backend is launched directly, without
+    // the core's creation, so only the postcondition can catch it.
     fake.script({ hook: "skip", cwd: "root" });
-    const missing = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-a000000000000002", branch: "radiant/b", worktreePath: join(sb.root, "wt", "b") }));
-    expect(missing.outcome.kind === "failed" && missing.outcome.reason).toContain("não existe");
-    expect(missing.kinds).not.toContain("worktree");
+    const be0 = herdr();
+    const p0 = plan({ harness: "claude-code", agentName: "dz-a000000000000002", branch: "radiant/b", worktreePath: join(sb.root, "wt", "b") });
+    const missingCreated: Created[] = [];
+    const missing = await be0.launch(p0, be0.prepare(p0), (r) => missingCreated.push(r));
+    expect(missing.kind === "failed" && missing.reason).toContain("não existe");
+    expect(missingCreated.map((c) => c.kind)).not.toContain("worktree");
 
     fake.script({ hook: "run", cwd: "worktree" });
     const be = herdr();
     const p = plan({ harness: "claude-code", agentName: "dz-a000000000000003", branch: "radiant/c", worktreePath: join(sb.root, "wt", "c") });
-    // The hook builds from p.baseCommit; the postcondition expects another.
+    // The worktree is created at p.baseCommit; the postcondition expects
+    // another commit.
+    expect(git(sb.repo, ["worktree", "add", "-q", "-b", p.branch, p.worktreePath, p.baseCommit], sb.env).code).toBe(0);
     const other = sb.commit("outro.txt", "x\n", "outro commit");
     const created: Created[] = [];
     const outcome = await be.launch({ ...p, baseCommit: other }, be.prepare(p), (r) => created.push(r));
@@ -457,7 +475,7 @@ describe("launch (H5, H6, H7)", () => {
     fake.script({ start: { claude: "not_ready", codex: "not_ready" } });
     const codex = await launch(herdr(), plan({ agentName: "dz-b000000000000001", branch: "radiant/d", worktreePath: join(sb.root, "wt", "d") }));
     expect(codex.outcome.kind).toBe("blocked");
-    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    expect(codex.kinds).toEqual(["workspace", "tab", "pane", "agent"]);
 
     const ok = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-b000000000000002", branch: "radiant/e", worktreePath: join(sb.root, "wt", "e") }));
     expect(ok.outcome.kind).toBe("blocked");
@@ -560,19 +578,19 @@ describe("launch (H5, H6, H7)", () => {
     fake.script({ start: { codex: "ok-empty" } });
     const empty = await launch(herdr(), plan());
     expect(empty.outcome.kind === "failed" && empty.outcome.reason).toContain("confirmação sem o agente");
-    expect(empty.kinds).toEqual(["worktree", "workspace", "tab", "pane"]);
+    expect(empty.kinds).toEqual(["workspace", "tab", "pane"]);
 
     fake.script({ start: { claude: "garbage" } });
     const broken = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-f000000000000001", branch: "radiant/k", worktreePath: join(sb.root, "wt", "k") }));
     expect(broken.outcome.kind === "failed" && broken.outcome.reason).toContain("não é JSON");
-    expect(broken.kinds).toEqual(["workspace", "tab", "pane", "worktree"]);
+    expect(broken.kinds).toEqual(["workspace", "tab", "pane"]);
   });
 
   test("claude-code agent start error after the hook", async () => {
     fake.script({ start: { claude: "error" } });
     const r = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-e000000000000001", branch: "radiant/j", worktreePath: join(sb.root, "wt", "j") }));
     expect(r.outcome.kind).toBe("failed");
-    expect(r.kinds).toEqual(["workspace", "tab", "pane", "worktree"]);
+    expect(r.kinds).toEqual(["workspace", "tab", "pane"]);
   });
 });
 
@@ -701,7 +719,7 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     fake.script({ createAnswer: "garbage-after" });
     const codex = await launch(herdr(), plan());
     expect(codex.outcome.kind).toBe("failed");
-    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane"]);
+    expect(codex.kinds).toEqual(["workspace", "tab", "pane"]);
     expect(codex.outcome.ids.workspace).toBe("w1");
 
     const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-g000000000000001", label: "TC-0099.2 dz-g000000000000001", branch: "radiant/l", worktreePath: join(sb.root, "wt", "l") }));
@@ -763,7 +781,7 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
       const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
       expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
       expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
-      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(harness === "codex" ? ["worktree", "workspace", "pane", "tab"] : ["workspace", "pane", "tab"]);
+      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(["worktree", "workspace", "pane", "tab"]);
     });
 
     // Protects: K2, the resources a partial answer confirmed stay listed
@@ -820,7 +838,7 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
       const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
       expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
       expect(d.envelope.tasks[0]?.backend_ids).toEqual({ workspace: "w1", tab: "w1:t1", pane: "w1:p1" });
-      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(harness === "codex" ? ["worktree", "workspace", "tab", "pane"] : ["workspace", "tab", "pane"]);
+      expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(["worktree", "workspace", "tab", "pane"]);
     });
   }
 
@@ -881,9 +899,9 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     fake.script({ start: { codex: "started-garbage", claude: "started-garbage" } });
     const codex = await launch(herdr(), plan());
     expect(codex.outcome.kind).toBe("failed");
-    expect(codex.kinds).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    expect(codex.kinds).toEqual(["workspace", "tab", "pane", "agent"]);
     const claude = await launch(herdr(), plan({ harness: "claude-code", agentName: "dz-g000000000000002", label: "TC-0099.3 dz-g000000000000002", branch: "radiant/m", worktreePath: join(sb.root, "wt", "m") }));
-    expect(claude.kinds).toEqual(["workspace", "tab", "pane", "worktree", "agent"]);
+    expect(claude.kinds).toEqual(["workspace", "tab", "pane", "agent"]);
   });
 
   // Protects: Spec 2.3 and 6, the request never comes back through any field
@@ -918,4 +936,66 @@ describe("required cases of section 11 (finding T4)", () => {
     const snap = await herdr().snapshot();
     expect(snap.workspaces).toEqual([{ id: "w9", label: "solto", tab: null, pane: null }]);
   });
+});
+
+describe("worktrees created and prepared by the core (TC-0004)", () => {
+  // Protects: W2, no `herdr worktree create` is left in src/. Fails if the
+  // backend goes back to creating worktrees through herdr.
+  test("no herdr worktree create in src", () => {
+    const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      return statSync(path).isDirectory() ? walk(path) : [path];
+    });
+    const src = join(import.meta.dir, "..", "..", "src");
+    const offenders = walk(src).filter((path) => /["']worktree["'],\s*["']create["']|herdr worktree create/.test(readFileSync(path, "utf8")));
+    expect(offenders).toEqual([]);
+  });
+
+  // Protects: W3, the hook only prints the path, quoted for POSIX sh, and
+  // its settings are recorded in `recorded`. Fails if the hook creates
+  // anything or the settings are recorded late.
+  test("the hook only prints the path", async () => {
+    const odd = join(sb.root, "wt", "it's a $HOME `x`");
+    const settings = JSON.parse(hookSettings(plan({ harness: "claude-code", worktreePath: odd })));
+    expect(settings).toEqual({ hooks: { WorktreeCreate: [{ hooks: [{ type: "command", command: `printf '%s' ${shQuote(odd)}` }] }] } });
+    const out = Bun.spawnSync(["/bin/sh", "-c", settings.hooks.WorktreeCreate[0].hooks[0].command]);
+    expect(out.stdout.toString()).toBe(odd);
+    expect(existsSync(odd)).toBe(false);
+
+    const d = await dispatch({ task: task({ harness: "claude-code", model: "claude-sonnet-5-5" }), humanApproved: false }, ctx(herdr(null)));
+    expect(d.code).toBe(0);
+    const dir = resolveProject(sb.repo, fake.env)?.dir ?? "";
+    const record = JSON.parse(readFileSync(join(dir, "tasks", "TC-0099.1.json"), "utf8"));
+    expect(JSON.parse(record.preparation.settings).hooks.WorktreeCreate[0].hooks[0].command).toBe(`printf '%s' ${shQuote(record.worktree)}`);
+    expect(record.history.findIndex((h: { event: string }) => h.event === "recorded")).toBe(0);
+  });
+
+  // Protects: W1, W5 and P7 through the herdr backend, in both harnesses:
+  // the core creates the worktree with no Git hook, prepares it, and only
+  // then herdr opens the session, with Codex in the worktree and Claude
+  // Code at the root entering it. Fails if a hook runs, the session opens
+  // before the preparation, or Codex starts outside the worktree.
+  for (const harness of ["codex", "claude-code"]) {
+    test(`prepared before the session, ${harness}`, async () => {
+      const fx = prepareFixture(sb);
+      const base = fx.commit({ schema: 1, prepare: [["bun", "prep/record.ts", "herdr"]] });
+      const marker = join(sb.root, "hook-ran");
+      const hooks = join(sb.repo, git(sb.repo, ["rev-parse", "--git-path", "hooks"], sb.env).stdout);
+      mkdirSync(hooks, { recursive: true });
+      writeFileSync(join(hooks, "post-checkout"), `#!/bin/sh\n: > '${marker}'\n`, { mode: 0o755 });
+      let callsAtPrepared = -1;
+      const context = { ...ctx(herdr(null)), trace: (event: string) => {
+        if (event === "wrote:prepared") callsAtPrepared = fake.calls().filter((c) => !(c[0] === "api" || c[0] === "status")).length;
+      } };
+      const d = await dispatch({ task: task({ harness, base, model: harness === "codex" ? "gpt-6.1-sol" : "claude-sonnet-5-5" }), humanApproved: false }, context);
+      expect(d.code).toBe(0);
+      const worktree = d.envelope.tasks[0]?.worktree ?? "";
+      expect(existsSync(join(worktree, "prepared", "herdr.json"))).toBe(true);
+      expect(existsSync(marker)).toBe(false);
+      expect(callsAtPrepared).toBe(0);
+      const create = fake.calls().find((c) => c[0] === "workspace" && c[1] === "create") ?? [];
+      expect(create[3]).toBe(harness === "codex" ? worktree : sb.repo);
+      expect(fake.state().agents[0]?.cwd).toBe(worktree);
+    });
+  }
 });

@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "prepare": [
+    ["bun", "install", "--frozen-lockfile"]
+  ]
+}

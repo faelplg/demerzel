@@ -10,16 +10,37 @@ export class Registry {
   readonly tasksDir: string;
   readonly worktreesDir: string;
   readonly lockPath: string;
+  readonly locksDir: string;
+  readonly logsDir: string;
+  // Spec 2.6: an empty folder given to Git as core.hooksPath, so creating a
+  // worktree runs no hook.
+  readonly noHooksDir: string;
 
   constructor(readonly dir: string) {
     this.tasksDir = join(dir, "tasks");
     this.worktreesDir = join(dir, "worktrees");
     this.lockPath = join(dir, "lock");
+    this.locksDir = join(dir, "locks");
+    this.logsDir = join(dir, "logs");
+    this.noHooksDir = join(dir, "no-hooks");
   }
 
   ensure(): void {
     mkdirSync(this.tasksDir, { recursive: true });
     mkdirSync(this.worktreesDir, { recursive: true });
+    mkdirSync(this.locksDir, { recursive: true });
+  }
+
+  // Spec 2.3, revision 0.15: the task lock. Only callers that validated the
+  // ID reach a path.
+  taskLockPath(id: string): string {
+    if (!validateId(id).ok) throw new Error(`invalid task ID for a lock path: ${id}`);
+    return join(this.locksDir, `${id}.lock`);
+  }
+
+  prepareLogPath(id: string): string {
+    if (!validateId(id).ok) throw new Error(`invalid task ID for a log path: ${id}`);
+    return join(this.logsDir, id, "prepare.log");
   }
 
   worktreePath(id: string): string {

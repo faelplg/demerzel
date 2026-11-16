@@ -32,7 +32,8 @@ const SESSION = ["workspace", "tab", "pane"];
 const ALL = ["worktree", ...SESSION, "agent"];
 const lf = (created: string[]): Expectation => ({ lifecycle: "launch-failed", created, requestSent: false });
 
-// Every point of the write order of Spec 2.3, in the order of each mode.
+// Every point of the write order of Spec 2.3. Since revision 0.15 the core
+// creates the worktree first in both modes.
 const CASES: Record<string, Array<[string, Expectation]>> = {
   codex: [
     ["wrote:recorded", lf([])],
@@ -47,10 +48,10 @@ const CASES: Record<string, Array<[string, Expectation]>> = {
   "claude-code": [
     ["wrote:recorded", lf([])],
     ["wrote:launching", lf([])],
-    ["wrote:created:workspace", lf(SESSION)],
-    ["wrote:created:tab", lf(SESSION)],
-    ["wrote:created:pane", lf(SESSION)],
-    ["wrote:created:worktree", lf(["worktree", ...SESSION])],
+    ["wrote:created:worktree", lf(["worktree"])],
+    ["wrote:created:workspace", lf(["worktree", ...SESSION])],
+    ["wrote:created:tab", lf(["worktree", ...SESSION])],
+    ["wrote:created:pane", lf(["worktree", ...SESSION])],
     ["wrote:created:agent", { lifecycle: "launched", created: ALL, requestSent: false }],
     ["wrote:send-started", { lifecycle: "launched", created: ALL, requestSent: "unknown" }],
   ],

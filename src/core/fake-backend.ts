@@ -1,17 +1,20 @@
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { BackendError, type Backend, type CheckOutcome, type LaunchCheck, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus } from "./backend.ts";
 import type { Env } from "./env.ts";
-import { git } from "./git.ts";
 import type { BackendIds, Created } from "./types.ts";
 
-// In-memory backend for the core's tests. It creates real Git worktrees so
-// branches, dependencies and collect are proven against Git, and lets each
-// outcome of Spec 2.5 be injected. With `stateFile`, its state survives across
+// In-memory backend for the core's tests. Since Spec 0.15 the core creates
+// the branch and the worktree, so this backend only opens sessions and
+// starts agents, and lets each outcome of Spec 2.5 be injected. With `stateFile`, its state survives across
 // processes, for the lock and interruption tests. Reads (probe, snapshot,
 // prepare) never write the state file: only effects, which the core runs under
 // the project lock, and the test controls do. Every call goes to a separate
 // append-only log, so a read in one process cannot erase an effect of another.
 
+// Where the agent starts, as in the herdr backend: "worktree-first" opens the
+// session in the worktree the core created (Codex); "worktree-on-start"
+// opens it at the project root and the agent enters the worktree when it
+// starts (Claude Code), which is the mode with a launch postcondition.
 export type WorktreeMode = "worktree-first" | "worktree-on-start";
 export type EffectPoint = "worktree" | "workspace" | "agent";
 
@@ -62,7 +65,7 @@ export class FakeBackend implements Backend {
   private readonly stateFile: string | null;
   private readonly callsFile: string | null;
 
-  constructor(private env: Env, options: { script?: Partial<FakeScript>; stateFile?: string } = {}) {
+  constructor(_env: Env, options: { script?: Partial<FakeScript>; stateFile?: string } = {}) {
     this.stateFile = options.stateFile ?? null;
     this.callsFile = this.stateFile === null ? null : `${this.stateFile}.calls.jsonl`;
     const loaded = this.stateFile !== null && existsSync(this.stateFile) ? (JSON.parse(readFileSync(this.stateFile, "utf8")) as State) : null;
@@ -165,9 +168,7 @@ export class FakeBackend implements Backend {
         ? { applied: plan.effort, omittedReason: null }
         : { applied: null, omittedReason: `o harness não aceita o esforço ${plan.effort}` };
     const mode = script.modes[plan.harness] ?? "worktree-first";
-    const data: Record<string, unknown> = mode === "worktree-on-start"
-      ? { worktreeCreateHook: { branch: plan.branch, path: plan.worktreePath, base: plan.baseCommit } }
-      : {};
+    const data: Record<string, unknown> = mode === "worktree-on-start" ? { worktreeCreateHook: { path: plan.worktreePath } } : {};
     return { effort, data };
   }
 
@@ -177,12 +178,6 @@ export class FakeBackend implements Backend {
     const ids: BackendIds = { workspace: null, tab: null, pane: null };
     const failed = (reason: string): LaunchOutcome => ({ kind: "failed", reason, ids });
 
-    const addWorktree = (): string | null => {
-      const r = git(plan.mainCheckout, ["worktree", "add", "-q", "-b", plan.branch, plan.worktreePath, plan.baseCommit], this.env);
-      if (r.code !== 0) return r.stderr;
-      onCreated({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
-      return null;
-    };
     const addWorkspace = (): void => {
       const state = this.load();
       const n = state.next++;
@@ -202,24 +197,14 @@ export class FakeBackend implements Backend {
       onCreated({ kind: "agent", name: plan.agentName });
     };
 
-    if (script.modes[plan.harness] === "worktree-on-start") {
-      addWorkspace();
-      if (script.failAfter === "workspace") return failed("falha injetada depois do workspace");
-      const error = addWorktree();
-      if (error !== null) return failed(error);
-      if (script.failAfter === "worktree") return failed("falha injetada depois do worktree");
-      addAgent();
-      if (script.failAfter === "agent") return failed("falha injetada depois do agente");
-      if (script.postcondition === "fail") return failed("pós-condição do lançamento não confere: cwd do agente fora do worktree");
-    } else {
-      const error = addWorktree();
-      if (error !== null) return failed(error);
-      if (script.failAfter === "worktree") return failed("falha injetada depois do worktree");
-      addWorkspace();
-      if (script.failAfter === "workspace") return failed("falha injetada depois do workspace");
-      addAgent();
-      if (script.failAfter === "agent") return failed("falha injetada depois do agente");
-    }
+    // The worktree already exists: "worktree" injects a failure before the
+    // backend's first effect.
+    if (script.failAfter === "worktree") return failed("falha injetada depois do worktree");
+    addWorkspace();
+    if (script.failAfter === "workspace") return failed("falha injetada depois do workspace");
+    addAgent();
+    if (script.failAfter === "agent") return failed("falha injetada depois do agente");
+    if (script.modes[plan.harness] === "worktree-on-start" && script.postcondition === "fail") return failed("pós-condição do lançamento não confere: cwd do agente fora do worktree");
     return { kind: script.startup === "blocked" ? "blocked" : "ready", ids };
   }
 

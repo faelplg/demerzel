@@ -32,7 +32,9 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
       },
     });
     await dispatch({ task: task({ harness: "claude-code" }), humanApproved: false }, ctx);
-    expect(atRecorded).toEqual({ worktreeCreateHook: { branch: "radiant/TC-0099.1", path: record().worktree, base: record().base.commit } });
+    // Spec 2.5, revision 0.15: the hook only names the worktree the core
+    // created, so its data is the path alone.
+    expect(atRecorded).toEqual({ worktreeCreateHook: { path: record().worktree } });
   });
 
   // Protects: the effort the backend omits is recorded with its reason.
@@ -44,8 +46,9 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
   });
 
   // Protects: `created` lists exactly what exists after a failure at each
-  // point, in each order. Fails if a resource is recorded late or not at all.
-  const ORDER: Record<string, EffectPoint[]> = { codex: ["worktree", "workspace", "agent"], "claude-code": ["workspace", "worktree", "agent"] };
+  // point. Since Spec 0.15 the core creates the worktree first for both
+  // harnesses. Fails if a resource is recorded late or not at all.
+  const ORDER: Record<string, EffectPoint[]> = { codex: ["worktree", "workspace", "agent"], "claude-code": ["worktree", "workspace", "agent"] };
   for (const [harness, order] of Object.entries(ORDER)) {
     for (const [i, point] of order.entries()) {
       test(`${harness}: failure after ${point}`, async () => {
@@ -67,7 +70,7 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
     expect(d.code).toBe(1);
     expect(record().lifecycle).toBe("launch-failed");
     expect(record().history.at(-1)?.detail?.["reason"]).toContain("pós-condição");
-    expect(record().created.map((c) => c.kind)).toEqual(["workspace", "tab", "pane", "worktree", "agent"]);
+    expect(record().created.map((c) => c.kind)).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
   });
 
   // Protects: request_sent for each send outcome (R16). Fails if a stalled
@@ -84,7 +87,8 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
   });
 
   // Protects: the decision is recorded before the first effect and the
-  // order of writes holds. Fails if launching is written after launch.
+  // order of writes holds; the worktree is the core's, before any backend
+  // effect (Spec 0.15). Fails if launching is written after launch.
   test("write order: recorded, launching, resources, send-started, launched", async () => {
     const be = backend(sb);
     const events: string[] = [];
@@ -97,7 +101,7 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
     expect(events).toEqual([
       "wrote:recorded@0",
       "wrote:launching@0",
-      "wrote:created:worktree@1",
+      "wrote:created:worktree@0",
       "wrote:created:workspace@1",
       "wrote:created:tab@1",
       "wrote:created:pane@1",

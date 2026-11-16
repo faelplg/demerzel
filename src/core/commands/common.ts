@@ -18,6 +18,10 @@ export type Context = {
   lockTimeoutMs?: number;
   lockIntervalMs?: number;
   waitIntervalMs?: number;
+  // Spec 2.6: the preparation's limit and grace period are fixed for users;
+  // only tests inject shorter ones.
+  prepareLimitMs?: number;
+  prepareGraceMs?: number;
   // Called after each registry write and lock event; tests use it to stop
   // or pause a process at a precise point. It never changes behavior.
   trace?: (event: string) => void;
@@ -45,6 +49,13 @@ export type TaskView = {
   // Spec 2.3, revision 0.9: the backend command and error of a failure after
   // the first effect of this command, or null.
   backend_error: string | null;
+  // Spec 2.6, revision 0.15: why this command's launch failed in the core
+  // itself, before any backend session: worktree creation, the
+  // preparation, the identity check or the project lock taken back. Never
+  // the preparation's output.
+  launch_error: string | null;
+  // The project's preparation of Spec 2.6, when it had commands.
+  preparation: { outcome: "succeeded" | "failed" | null; log: string | null } | null;
   created_at: string | null;
   updated_at: string | null;
   collected?: { content: string; path: string; digest: string; digest_changed: boolean };
@@ -76,7 +87,7 @@ export function open(command: string, ctx: Context): Session | Outcome {
   return { project, registry: new Registry(project.dir), config: config.config };
 }
 
-export function isOutcome(value: Session | Outcome): value is Outcome {
+export function isOutcome<T extends object>(value: T | Outcome): value is Outcome {
   return "envelope" in value;
 }
 
@@ -236,6 +247,10 @@ export function view(record: TaskRecord, snapshot: Snapshot | null, options: { i
     created: record.created,
     provenance: record.provenance,
     backend_error: null,
+    launch_error: null,
+    preparation: record.project_preparation !== undefined && record.project_preparation.commands.length > 0
+      ? { outcome: record.project_preparation.outcome, log: record.project_preparation.log }
+      : null,
     created_at: first?.at ?? null,
     updated_at: last?.at ?? null,
   };
@@ -256,24 +271,69 @@ export function workspaceLabel(record: Pick<TaskRecord, "id" | "agent_name">): s
   return `${record.id} ${record.agent_name}`;
 }
 
-// Spec 2.3: a command that holds the lock and talks to the backend finds a
-// task in `recorded` or `launching` only if its dispatch was interrupted.
-// The recovery is computed here in memory and written by `publish` only
-// when the command goes on to act; a refusal leaves every task file as it
-// was (Spec 5). Nothing is relaunched or resent.
-export type Recovery = { records: TaskRecord[]; recovered: TaskRecord[]; publish: () => void };
+// Spec 2.3, revision 0.15: the target's task lock, taken without waiting
+// while the project lock is held. Held by another command, such as a live
+// dispatch, it is the refusal task-busy, with no effect.
+export function taskLock(command: string, registry: Registry, id: string): ProjectLock | Outcome {
+  const held = ProjectLock.tryAcquire(registry.taskLockPath(id));
+  if (held === null) {
+    return refuse(command, "task-busy", `task ${id} is busy: another Demerzel command holds its task lock`, "Wait for that command to finish, check it with `demerzel status`, and run again.");
+  }
+  return held;
+}
 
-export function planRecovery(registry: Registry, snapshot: Snapshot, project: Project, env: Env, trace?: (event: string) => void): Recovery {
+const halfDone = (record: TaskRecord): boolean => record.lifecycle === "recorded" || record.lifecycle === "launching";
+
+// Spec 2.3: a command that holds the project lock and talks to the backend
+// finds a task in `recorded` or `launching` only if its dispatch was
+// interrupted. Since revision 0.15 that is decided by the task lock: each
+// such task is recovered only when its lock is taken without waiting, read
+// again after taking it, and still half done; with the lock held, a live
+// dispatch owns it and it is left as it is. `own` names the tasks whose lock
+// this command already holds. The recovery is computed here in memory and
+// written by `publish` only when the command goes on to act; a refusal
+// leaves every task file as it was (Spec 5). `release` lets go of the task
+// locks taken here, after publishing or without publishing. Nothing is
+// relaunched or resent.
+export type Recovery = { records: TaskRecord[]; recovered: TaskRecord[]; publish: () => void; release: () => void };
+
+export function planRecovery(registry: Registry, snapshot: Snapshot, project: Project, env: Env, trace?: (event: string) => void, own: ReadonlySet<string> = new Set()): Recovery {
   const records = registry.list();
+  trace?.("recovery:listed");
   const recovered: TaskRecord[] = [];
-  for (const record of records) {
-    if (record.lifecycle !== "recorded" && record.lifecycle !== "launching") continue;
+  const locks: ProjectLock[] = [];
+  for (const [i, listed] of records.entries()) {
+    if (!halfDone(listed)) continue;
+    let lock: ProjectLock | null = null;
+    if (!own.has(listed.id)) {
+      lock = ProjectLock.tryAcquire(registry.taskLockPath(listed.id));
+      if (lock === null) continue;
+    }
+    const record = registry.read(listed.id);
+    if (record === null || !halfDone(record)) {
+      if (record !== null) records[i] = record;
+      lock?.release();
+      continue;
+    }
+    records[i] = record;
+    if (lock !== null) locks.push(lock);
     const from = record.lifecycle;
     recovered.push(record);
+    // Spec 2.6: an interrupted preparation is named with its process group,
+    // which the recovery does not stop.
+    const prep = record.project_preparation;
+    const preparing = prep !== undefined && prep.prepare_started_at !== null && prep.outcome === null;
+    const reason: Record<string, unknown> = { reason: "interrupted", from };
+    if (preparing) {
+      reason["preparation"] = prep.process_group === null
+        ? "the preparation was interrupted before its first command started"
+        : `the preparation was interrupted; its process group ${prep.process_group} is not stopped by the recovery and may still be running`;
+      reason["process_group"] = prep.process_group;
+    }
     if (from === "recorded") {
       record.created = [];
       record.lifecycle = "launch-failed";
-      record.history.push(entry("launch-failed", { reason: "interrupted", from }));
+      record.history.push(entry("launch-failed", reason));
       continue;
     }
     const found: Created[] = [];
@@ -302,10 +362,10 @@ export function planRecovery(registry: Registry, snapshot: Snapshot, project: Pr
     if (alive) {
       record.request_sent = record.send_started_at !== null ? "unknown" : false;
       record.lifecycle = "launched";
-      record.history.push(entry("launched", { reason: "interrupted", from, request_sent: record.request_sent }));
+      record.history.push(entry("launched", { ...reason, request_sent: record.request_sent }));
     } else {
       record.lifecycle = "launch-failed";
-      record.history.push(entry("launch-failed", { reason: "interrupted", from }));
+      record.history.push(entry("launch-failed", reason));
     }
   }
   return {
@@ -316,6 +376,9 @@ export function planRecovery(registry: Registry, snapshot: Snapshot, project: Pr
         registry.write(record);
         trace?.(`wrote:recovered:${record.id}`);
       }
+    },
+    release: () => {
+      for (const lock of locks.splice(0)) lock.release();
     },
   };
 }

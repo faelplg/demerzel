@@ -53,6 +53,33 @@ export type HistoryEntry = {
   detail: Record<string, unknown> | null;
 };
 
+// Spec 2.6, revision 0.15: the project's preparation, recorded in
+// `recorded` with the commit it came from and never read again, then its
+// start, each command's process group and result, and its outcome. Absent
+// on tasks recorded before revision 0.15.
+export type PrepareResult = {
+  index: number;
+  program: string;
+  exit_code: number | null;
+  signal: string | null;
+  duration_ms: number;
+  failure: string | null;
+};
+
+export type ProjectPreparation = {
+  file: string;
+  commit: string;
+  present: boolean;
+  commands: string[][];
+  prepare_started_at: string | null;
+  // The process group of the command running now, or of the last one run.
+  process_group: number | null;
+  log: string | null;
+  results: PrepareResult[];
+  outcome: "succeeded" | "failed" | null;
+  reason: string | null;
+};
+
 export type TaskRecord = {
   schema: 1;
   id: string;
@@ -67,6 +94,7 @@ export type TaskRecord = {
   agent_name: string;
   backend_ids: BackendIds;
   preparation: Record<string, unknown>;
+  project_preparation?: ProjectPreparation;
   provenance: Record<string, string>;
   flags: { human_approved: boolean; discard_worktree: boolean };
   lifecycle: Lifecycle;

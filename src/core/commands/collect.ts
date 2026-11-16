@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { sha256 } from "../project.ts";
-import { done, isLock, isOutcome, lock, notFound, open, reportFile, reportPath, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import type { ProjectLock } from "../lock.ts";
+import { done, isLock, isOutcome, lock, notFound, open, reportFile, reportPath, taskLock, transition, view, wrongLifecycle, type Context, type Outcome } from "./common.ts";
 
 const C = "collect";
 
@@ -13,7 +14,14 @@ export async function collect(id: string, ctx: Context): Promise<Outcome> {
   const { registry } = session;
   const held = await lock(C, ctx, registry);
   if (!isLock(held)) return held;
+  let own: ProjectLock | null = null;
   try {
+    if (registry.read(id) === null) return notFound(C, id);
+    // Spec 2.3, revision 0.15: only the holder of the task lock writes the
+    // task, and it reads the task after taking the lock.
+    const mine = taskLock(C, registry, id);
+    if (isOutcome(mine)) return mine;
+    own = mine;
     const record = registry.read(id);
     if (record === null) return notFound(C, id);
     if (record.lifecycle !== "launched" && record.lifecycle !== "collected") return wrongLifecycle(C, record, "launched ou collected");
@@ -29,6 +37,7 @@ export async function collect(id: string, ctx: Context): Promise<Outcome> {
     v.collected = { content, path, digest, digest_changed: changed };
     return done(C, 0, [v]);
   } finally {
+    own?.release();
     held.release();
   }
 }

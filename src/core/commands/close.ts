@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { git } from "../git.ts";
 import { entry, type Registry } from "../registry.ts";
 import type { TaskRecord } from "../types.ts";
-import { agentState, backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, transition, view, viewAfterEffect, workspaceLabel, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import type { ProjectLock } from "../lock.ts";
+import { agentState, backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, taskLock, transition, view, viewAfterEffect, workspaceLabel, wrongLifecycle, type Context, type Outcome, type Recovery } from "./common.ts";
 
 const C = "close";
 
@@ -41,7 +42,15 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
   const { project, registry } = session;
   const held = await lock(C, ctx, registry);
   if (!isLock(held)) return held;
+  let own: ProjectLock | null = null;
+  let recovery: Recovery | null = null;
   try {
+    if (registry.read(input.id) === null) return notFound(C, input.id);
+    // Spec 2.3, revision 0.15: the target's task lock, without waiting,
+    // before any check of the matrix; the task is read after it.
+    const mine = taskLock(C, registry, input.id);
+    if (isOutcome(mine)) return mine;
+    own = mine;
     const stored = registry.read(input.id);
     if (stored === null) return notFound(C, input.id);
 
@@ -63,7 +72,7 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
     if (!isProbe(probe)) return probe;
     const snapshot = await readSnapshot(C, ctx.backend);
     if (!isSnapshot(snapshot)) return snapshot;
-    const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
+    recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace, new Set([input.id]));
     const record = recovery.records.find((r) => r.id === input.id);
     if (record === undefined) return notFound(C, input.id);
     if (record.lifecycle !== "launched" && record.lifecycle !== "collected" && record.lifecycle !== "launch-failed") {
@@ -112,6 +121,8 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
     v.discard = result;
     return done(C, result.removed ? 0 : 1, [v]);
   } finally {
+    recovery?.release();
+    own?.release();
     held.release();
   }
 }

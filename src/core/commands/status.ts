@@ -12,8 +12,8 @@ function attention(task: TaskView): boolean {
   return task.agent === "idle" && task.report === "absent";
 }
 
-// Spec 4: reads only. It tries the lock without waiting to tell an
-// interrupted dispatch from one in progress, and releases it at once.
+// Spec 4: reads only. It probes each half-done task's lock without waiting
+// to tell an interrupted dispatch from one in progress.
 export async function status(input: StatusInput, ctx: Context): Promise<Outcome> {
   const session = open(C, ctx);
   if (isOutcome(session)) return session;
@@ -36,30 +36,28 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
   if (!isSnapshot(first)) return first;
   let snapshot = first;
 
-  // A dispatch may have finished while this command read the backend. With
-  // the lock free, the half-done tasks are read again before being called
-  // interrupted, and when one of them moved on, the snapshot is taken again
-  // so the record and the agent come from the same moment. With the lock
-  // busy they are shown as they are.
+  // Spec 2.3, revision 0.15: each half-done task's own lock tells a live
+  // dispatch, possibly in its preparation, from an interrupted one. The lock
+  // file is opened read-only and never created. With the lock free, the
+  // task is read again and is interrupted only if it is still half done;
+  // when one moved on, the snapshot is taken again so the record and the
+  // agent come from the same moment. With the lock held, it shows as it is.
+  ctx.trace?.("status:read");
   const halfDone = (r: TaskRecord) => r.lifecycle === "recorded" || r.lifecycle === "launching";
   const interrupted = new Set<string>();
-  if (records.some(halfDone)) {
-    registry.ensure();
-    const probeLock = ProjectLock.tryAcquire(registry.lockPath);
-    if (probeLock !== null) {
-      try {
-        const reread = records.map((r) => (halfDone(r) ? (registry.read(r.id) ?? r) : r));
-        if (reread.some((r, i) => r.lifecycle !== records[i]?.lifecycle)) {
-          const again = await readSnapshot(C, ctx.backend);
-          if (!isSnapshot(again)) return again;
-          snapshot = again;
-        }
-        records = reread;
-        for (const r of records) if (halfDone(r)) interrupted.add(r.id);
-      } finally {
-        probeLock.release();
-      }
-    }
+  let moved = false;
+  records = records.map((r) => {
+    if (!halfDone(r)) return r;
+    const reread = ProjectLock.probe(registry.taskLockPath(r.id), () => registry.read(r.id) ?? r);
+    if (reread === "held") return r;
+    if (reread.lifecycle !== r.lifecycle) moved = true;
+    if (halfDone(reread)) interrupted.add(reread.id);
+    return reread;
+  });
+  if (moved) {
+    const again = await readSnapshot(C, ctx.backend);
+    if (!isSnapshot(again)) return again;
+    snapshot = again;
   }
   const tasks = records.map((r) => view(r, snapshot, { interrupted: interrupted.has(r.id) }));
   return done(C, tasks.some(attention) ? 1 : 0, tasks);

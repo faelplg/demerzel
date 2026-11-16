@@ -78,8 +78,9 @@ export interface Backend {
   snapshot(): Promise<Snapshot>;
   prepare(plan: LaunchPlan): Preparation;
   // Each resource is reported through onCreated as soon as it exists; the
-  // core records it before the backend moves on. The order of resources is
-  // the backend's: worktree before session, or worktree when the agent starts.
+  // core records it before the backend moves on. Since Spec 0.15 the core
+  // creates the branch and the worktree before launch, so a backend only
+  // opens the session and starts the agent.
   launch(plan: LaunchPlan, preparation: Preparation, onCreated: (resource: Created) => void): Promise<LaunchOutcome>;
   // The launch postcondition of Spec 2.5, used by launch after agent start
   // and by resume right before it sends.

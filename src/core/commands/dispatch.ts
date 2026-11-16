@@ -1,11 +1,14 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import type { LaunchPlan } from "../backend.ts";
 import { git, gitOk } from "../git.ts";
+import type { ProjectLock } from "../lock.ts";
+import { checkIdentity, PREPARE_GRACE_MS, PREPARE_LIMIT_MS, runPreparation } from "../prepare.ts";
 import { agentName } from "../project.ts";
+import { PROJECT_FILE, readProjectConfig } from "../project-config.ts";
 import { entry } from "../registry.ts";
 import { buildRequest, checkBranchName, checkPointers, overlaps, parseTask, resolveBase } from "../task.ts";
 import type { TaskRecord } from "../types.ts";
-import { backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, transition, view, viewAfterEffect, workspaceLabel, type Context, type Outcome } from "./common.ts";
+import { backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, taskLock, transition, view, viewAfterEffect, workspaceLabel, type Context, type Outcome, type Recovery } from "./common.ts";
 
 const C = "dispatch";
 
@@ -22,14 +25,20 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     return refuse(C, "task-invalid", `o backend não lança o harness ${task.harness}`, "Use um harness que o backend lança.");
   }
 
-  const held = await lock(C, ctx, registry);
-  if (!isLock(held)) return held;
+  const first = await lock(C, ctx, registry);
+  if (!isLock(first)) return first;
+  // Spec 2.3, revision 0.15: the project lock is released while the
+  // preparation runs and taken back after it; the task lock is held from
+  // before `recorded` to the last record.
+  let held: ProjectLock | null = first;
+  let own: ProjectLock | null = null;
+  let recovery: Recovery | null = null;
   try {
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
     const snapshot = await readSnapshot(C, ctx.backend);
     if (!isSnapshot(snapshot)) return snapshot;
-    const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
+    recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
 
     if (registry.taken(task.id)) {
       return refuse(C, "task-exists", `o ID ${task.id} já está no registro deste projeto e nunca é reutilizado`, "Despache a unidade com um ID novo.");
@@ -65,6 +74,10 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     if (!branchName.ok) return refuse(C, "task-invalid", branchName.message, "Use um nome de branch válido.");
     const pointers = checkPointers(task, project.mainCheckout, base.commit, ctx.env);
     if (!pointers.ok) return refuse(C, "task-invalid", pointers.message, "Aponte para paths que existem no commit base.");
+    // Spec 2.6: the preparation comes from the base commit, never from the
+    // working tree, and a file that cannot be read is never taken as absent.
+    const projectConfig = readProjectConfig(project.mainCheckout, base.commit, ctx.env);
+    if (!projectConfig.ok) return refuse(C, "project-config-invalid", projectConfig.message, `Fix ${PROJECT_FILE} in a commit and dispatch from it.`);
     if (gitOk(project.mainCheckout, ["show-ref", "--verify", "--quiet", `refs/heads/${task.branch}`], ctx.env)) {
       return refuse(C, "branch-exists", `o branch ${task.branch} já existe`, "Use outro ID ou remova o branch à mão, se ele não guarda trabalho.");
     }
@@ -75,9 +88,16 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
       return refuse(C, "agent-name-taken", `o agente ${name} já está vivo no backend`, "Feche a sessão desse agente antes de despachar.");
     }
 
+    // The ID is new, so its task lock is free; held, it is refused like any
+    // busy task, before any effect.
+    const mine = taskLock(C, registry, task.id);
+    if (isOutcome(mine)) return mine;
+    own = mine;
+
     // No refusal is left: the recovery of interrupted tasks is written now,
     // and from here on the decision is recorded and never re-read.
     recovery.publish();
+    recovery.release();
     const plan: LaunchPlan = {
       taskId: task.id,
       agentName: name,
@@ -105,6 +125,18 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
       agent_name: name,
       backend_ids: { workspace: null, tab: null, pane: null },
       preparation: preparation.data,
+      project_preparation: {
+        file: PROJECT_FILE,
+        commit: base.commit,
+        present: projectConfig.config.present,
+        commands: projectConfig.config.commands,
+        prepare_started_at: null,
+        process_group: null,
+        log: null,
+        results: [],
+        outcome: null,
+        reason: null,
+      },
       provenance: task.provenance,
       flags: { human_approved: input.humanApproved, discard_worktree: false },
       lifecycle: "recorded",
@@ -118,6 +150,75 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     registry.write(record);
     ctx.trace?.("wrote:recorded");
     transition(registry, record, "launching", null, ctx.trace);
+    // A failure in the backend is a backend error; one in the core itself,
+    // before any session, is a launch error.
+    const failLaunch = (reason: string, source: "core" | "backend"): Outcome => {
+      transition(registry, record, "launch-failed", { reason }, ctx.trace);
+      const v = view(record, null);
+      if (source === "backend") v.backend_error = reason;
+      else v.launch_error = reason;
+      return done(C, 1, [v]);
+    };
+
+    // Spec 2.6, step 1: the core creates the branch and the worktree for
+    // every harness, with no Git hook.
+    mkdirSync(registry.noHooksDir, { recursive: true });
+    const added = git(project.mainCheckout, ["-c", `core.hooksPath=${registry.noHooksDir}`, "worktree", "add", "-q", "-b", task.branch, worktree, base.commit], ctx.env);
+    if (existsSync(worktree) && gitOk(project.mainCheckout, ["show-ref", "--verify", "--quiet", `refs/heads/${task.branch}`], ctx.env)) {
+      const resource = { kind: "worktree" as const, path: worktree, branch: task.branch };
+      record.created.push(resource);
+      record.history.push(entry("created", { ...resource }));
+      registry.write(record);
+      ctx.trace?.("wrote:created:worktree");
+    }
+    if (added.code !== 0) return failLaunch(`git worktree add failed: ${added.stderr}`, "core");
+
+    // Spec 2.6, steps 2 to 7: the preparation runs without the project lock,
+    // under the task lock, and its outcome is recorded after the project
+    // lock is taken back. A failure stops the task before any session.
+    const prep = record.project_preparation;
+    if (prep !== undefined && prep.commands.length > 0) {
+      const log = registry.prepareLogPath(task.id);
+      prep.prepare_started_at = new Date().toISOString();
+      prep.log = log;
+      record.history.push(entry("prepare-started", { commands: prep.commands.length, log }));
+      registry.write(record);
+      ctx.trace?.("wrote:prepare-started");
+      held.release();
+      held = null;
+      ctx.trace?.("lock-released");
+      const outcome = await runPreparation({
+        commands: prep.commands,
+        worktree,
+        env: ctx.env,
+        log,
+        limits: { limitMs: ctx.prepareLimitMs ?? PREPARE_LIMIT_MS, graceMs: ctx.prepareGraceMs ?? PREPARE_GRACE_MS },
+        onStart: (index, pgid) => {
+          prep.process_group = pgid;
+          record.history.push(entry("prepare-command", { index, process_group: pgid }));
+          registry.write(record);
+          ctx.trace?.(`wrote:prepare-command:${index}`);
+        },
+      });
+      ctx.trace?.("prepare-ran");
+      const identity = outcome.ok ? checkIdentity({ mainCheckout: project.mainCheckout, worktree, branch: task.branch, baseCommit: base.commit, env: ctx.env }) : null;
+      const failure = !outcome.ok ? outcome.reason : identity !== null ? `the preparation broke the task's identity: ${identity}; log: ${log}` : null;
+      prep.results = outcome.results;
+      prep.outcome = failure === null ? "succeeded" : "failed";
+      prep.reason = failure;
+      const back = await lock(C, ctx, registry);
+      if (!isLock(back)) {
+        // Spec 2.3: recorded under the task lock alone, which is enough for a
+        // write to this task's own file.
+        const timeoutMs = ctx.lockTimeoutMs ?? 30_000;
+        return failLaunch(`${failure === null ? "" : `${failure}; `}could not take the project lock back within ${timeoutMs / 1000} s after the preparation`, "core");
+      }
+      held = back;
+      if (failure !== null) return failLaunch(failure, "core");
+      record.history.push(entry("prepared", { results: prep.results.length }));
+      registry.write(record);
+      ctx.trace?.("wrote:prepared");
+    }
 
     let launch;
     try {
@@ -133,12 +234,7 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     } catch (error) {
       launch = { kind: "failed" as const, reason: backendErrorDetail(error), ids: record.backend_ids };
     }
-    if (launch.kind === "failed") {
-      transition(registry, record, "launch-failed", { reason: launch.reason }, ctx.trace);
-      const v = view(record, null);
-      v.backend_error = launch.reason;
-      return done(C, 1, [v]);
-    }
+    if (launch.kind === "failed") return failLaunch(launch.reason, "backend");
     if (launch.kind === "blocked") {
       record.request_sent = false;
       transition(registry, record, "launched", { startup: "blocked", request_sent: false }, ctx.trace);
@@ -162,6 +258,8 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     const after = await snapshotAfterEffect(ctx.backend);
     return done(C, record.request_sent === true && after.error === null ? 0 : 1, [viewAfterEffect(record, after, failure)]);
   } finally {
-    held.release();
+    recovery?.release();
+    own?.release();
+    held?.release();
   }
 }
