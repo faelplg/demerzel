@@ -102,6 +102,10 @@ export async function runPreparation(options: {
       const program = declared.includes("/") ? resolve(worktree, declared) : declared;
       const started = Date.now();
       const result: CommandResult = { index, program: declared, exit_code: null, signal: null, duration_ms: 0, failure: null };
+      // Spec 2.6, step 5: no command runs once the limit has passed.
+      if (Date.now() >= deadline) {
+        return fail(result, `was not started: the time limit of ${Math.round(limits.limitMs / 1000)} s for the whole preparation had passed`);
+      }
       let ended: Promise<Ended>;
       let pgid: number | undefined;
       try {

@@ -435,6 +435,19 @@ describe("running the preparation (P1 to P9)", () => {
     expect(alive(Number(readFileSync(pidfile, "utf8")))).toBe(false);
   });
 
+  // Protects: P5 and P8, no command starts once the limit has passed: the
+  // preparation fails with the time limit before spawning it, so no
+  // process group is recorded. Fails if a command is spawned after the
+  // limit and only then stopped by its own timer.
+  test("no command starts after the limit", async () => {
+    fx.commit({ schema: 1, prepare: [["bun", "prep/record.ts", "late"]] });
+    const d = await dispatch({ task: prep(), humanApproved: false }, context(sb, backend(sb), { prepareLimitMs: 0, prepareGraceMs: 200 }));
+    expect(d.code).toBe(1);
+    expect(d.envelope.tasks[0]?.launch_error).toContain("preparation command 1 (bun) was not started: the time limit");
+    expect(record().project_preparation?.process_group).toBeNull();
+    expect(record().history.some((h) => h.event === "prepare-command")).toBe(false);
+  });
+
   // Protects: P8, the limit counts all commands together: two commands
   // that each fit the limit but not together fail it on the second. Fails
   // if the limit restarts for each command.
