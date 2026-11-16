@@ -411,6 +411,30 @@ describe("running the preparation (P1 to P9)", () => {
     expect(be.effectCalls()).toEqual([]);
   });
 
+  // Protects: P5 and P8, the limit also bounds the wait for a command's
+  // group after its leader exits: a command whose group is still not empty
+  // at the limit fails with the time limit, and no later command starts.
+  // Fails if that wait runs past the limit, so the command counts as done
+  // when its last child leaves after the limit and the next one starts.
+  test("the limit during the wait for an empty group", async () => {
+    const release = join(sb.root, "release");
+    const pidfile = join(sb.root, "waiter.pid");
+    fx.commit({ schema: 1, prepare: [["bun", "prep/leave-waiter.ts", release, pidfile], ["bun", "prep/record.ts", "after"]] });
+    // The child leaves after the limit and well inside the wait for its
+    // group, which the test makes long so the timing has wide margins.
+    const timer = setTimeout(() => writeFileSync(release, ""), 1_600);
+    const d = await dispatch(
+      { task: prep(), humanApproved: false },
+      context(sb, backend(sb), { prepareLimitMs: 800, prepareGraceMs: 200, prepareSettleMs: 4_000 }),
+    );
+    clearTimeout(timer);
+    expect(d.code).toBe(1);
+    expect(d.envelope.tasks[0]?.launch_error).toContain("preparation command 1 (bun) passed the time limit");
+    expect(record().project_preparation?.results.map((r) => r.index)).toEqual([1]);
+    expect(existsSync(join(worktree(), "prepared", "after.json"))).toBe(false);
+    expect(alive(Number(readFileSync(pidfile, "utf8")))).toBe(false);
+  });
+
   // Protects: P8, the limit counts all commands together: two commands
   // that each fit the limit but not together fail it on the second. Fails
   // if the limit restarts for each command.

@@ -18,10 +18,11 @@ export type Context = {
   lockTimeoutMs?: number;
   lockIntervalMs?: number;
   waitIntervalMs?: number;
-  // Spec 2.6: the preparation's limit and grace period are fixed for users;
-  // only tests inject shorter ones.
+  // Spec 2.6: the preparation's limit, grace period and wait for an empty
+  // group are fixed for users; only tests inject other ones.
   prepareLimitMs?: number;
   prepareGraceMs?: number;
+  prepareSettleMs?: number;
   // Called after each registry write and lock event; tests use it to stop
   // or pause a process at a precise point. It never changes behavior.
   trace?: (event: string) => void;

@@ -13,7 +13,7 @@ import { git } from "./git.ts";
 export const PREPARE_LIMIT_MS = 10 * 60_000;
 export const PREPARE_GRACE_MS = 5_000;
 
-export type PrepareLimits = { limitMs: number; graceMs: number };
+export type PrepareLimits = { limitMs: number; graceMs: number; settleMs: number };
 
 export type CommandResult = {
   index: number;
@@ -30,7 +30,7 @@ export type PrepareOutcome = { ok: true; results: CommandResult[] } | { ok: fals
 // How long a group is watched after its leader exits before what is left
 // counts as left running: the last children of a command may still be on
 // their way out when the leader's exit is seen.
-const SETTLE_MS = 200;
+export const PREPARE_SETTLE_MS = 200;
 const POLL_MS = 20;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, Math.max(0, ms)));
@@ -124,7 +124,7 @@ export async function runPreparation(options: {
       });
       const first = await Promise.race([ended, timer]);
       clearTimeout(timeout);
-      if (first === "limit") {
+      const passedLimit = async (): Promise<PrepareOutcome> => {
         if (pgid !== undefined) await stopGroup(pgid, limits.graceMs);
         const after = await Promise.race([ended, sleep(1_000).then(() => null)]);
         if (after !== null && after.kind === "exit") {
@@ -133,12 +133,18 @@ export async function runPreparation(options: {
         }
         result.duration_ms = Date.now() - started;
         return fail(result, `passed the time limit of ${Math.round(limits.limitMs / 1000)} s for the whole preparation`);
-      }
+      };
+      if (first === "limit") return passedLimit();
       result.duration_ms = Date.now() - started;
       if (first.kind === "error") return fail(result, `could not start (${first.code})`);
       result.exit_code = first.code;
       result.signal = first.signal;
-      if (pgid !== undefined && !(await waitEmpty(pgid, SETTLE_MS))) {
+      // The wait for an empty group counts toward the limit too: a group
+      // still not empty when the limit comes is a command running past it,
+      // so no later command starts after the limit.
+      const left = Math.max(0, deadline - Date.now());
+      if (pgid !== undefined && !(await waitEmpty(pgid, Math.min(limits.settleMs, left)))) {
+        if (left < limits.settleMs) return passedLimit();
         await stopGroup(pgid, limits.graceMs);
         result.duration_ms = Date.now() - started;
         return fail(result, "left processes running");

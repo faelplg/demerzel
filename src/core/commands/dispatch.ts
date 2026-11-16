@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import type { LaunchPlan } from "../backend.ts";
 import { git, gitOk } from "../git.ts";
 import type { ProjectLock } from "../lock.ts";
-import { checkIdentity, PREPARE_GRACE_MS, PREPARE_LIMIT_MS, runPreparation } from "../prepare.ts";
+import { checkIdentity, PREPARE_GRACE_MS, PREPARE_LIMIT_MS, PREPARE_SETTLE_MS, runPreparation } from "../prepare.ts";
 import { agentName } from "../project.ts";
 import { PROJECT_FILE, readProjectConfig } from "../project-config.ts";
 import { entry } from "../registry.ts";
@@ -192,7 +192,11 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
         worktree,
         env: ctx.env,
         log,
-        limits: { limitMs: ctx.prepareLimitMs ?? PREPARE_LIMIT_MS, graceMs: ctx.prepareGraceMs ?? PREPARE_GRACE_MS },
+        limits: {
+          limitMs: ctx.prepareLimitMs ?? PREPARE_LIMIT_MS,
+          graceMs: ctx.prepareGraceMs ?? PREPARE_GRACE_MS,
+          settleMs: ctx.prepareSettleMs ?? PREPARE_SETTLE_MS,
+        },
         onStart: (index, pgid) => {
           prep.process_group = pgid;
           record.history.push(entry("prepare-command", { index, process_group: pgid }));

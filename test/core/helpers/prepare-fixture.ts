@@ -50,6 +50,17 @@ child.unref();
 while (!existsSync(pidfile)) await Bun.sleep(10);
 if (stay === "stay") setInterval(() => {}, 1000);
 `,
+  // Starts prep/wait.ts as a child in its own group, waits until it has
+  // started, and exits 0, so the group empties only when the test creates
+  // the file the child waits on.
+  "prep/leave-waiter.ts": `
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+const [file = "", pidfile = ""] = process.argv.slice(2);
+const child = spawn(process.execPath, ["prep/wait.ts", file, pidfile], { stdio: "ignore" });
+child.unref();
+while (!existsSync(pidfile)) await Bun.sleep(10);
+`,
   "prep/child.ts": `
 import { writeFileSync } from "node:fs";
 const [pidfile = "", ignore = ""] = process.argv.slice(2);
