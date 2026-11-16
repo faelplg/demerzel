@@ -7,8 +7,9 @@ Spec: [revision 0.14](../SPEC.md), before the change
 State: **PASS**. Both harnesses start with no dialog, in 5 of 5 launches
 each, in a worktree created by `git worktree add` and prepared before the
 agent. The probe script did the steps Demerzel will do, calling Git and
-herdr directly; Demerzel itself was not run, and its own path is proved by
-the TC-0004 scenario and smoke.
+herdr directly. This PASS covers only that direct probe; Demerzel itself
+was not run, and its own path is still to be verified by the scenario and
+the smoke that TC-0004 requires.
 
 ## Question
 
