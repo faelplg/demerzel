@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.7, 2026-11-14
-Spec: [revisão 0.14](SPEC.md)
+Revisão do Plan: 0.8, 2026-11-14
+Spec: [revisão 0.15](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
@@ -22,6 +22,7 @@ Revision 0.5 drops the manual baseline from increment 6, by owner decision.
 Revision 0.6 closes increment 6, records the owner's decision to continue,
 and orders the open issues by risk.
 Revision 0.7 adds the Codex update prompt as increment 8.
+Revision 0.8 gives increment 7 its Spec change and its Task Contract.
 
 ## Feito
 
@@ -53,7 +54,11 @@ a Task Contract is decided when it comes next.
 7. Prepare dependencies in dispatched worktrees
    ([faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30)).
    Every TC-0025 unit started without `node_modules` and improvised its own
-   install.
+   install. Contract: [TC-0004](contracts/TC-0004-project-preparation.md),
+   on Spec 0.15 and the
+   [prepared worktree probe](verification/2026-11-14-prepared-worktree-probe.md).
+   Closes with `bun run check`, the herdr scenario preparing both modes, and
+   the smoke with each real agent reading a file the preparation wrote.
 8. Launch Codex without stopping at its update prompt
    ([faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43)).
    The update prompt stopped every Codex launch in TC-0025.
