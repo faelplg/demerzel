@@ -6,10 +6,12 @@
 //   DEMERZEL_SMOKE_REPO=<disposable repo> bun run smoke:herdr
 //
 // The first run creates the disposable repository and stops, so the owner can
-// trust it once in each CLI. Every run starts its own herdr server, with a
+// trust it once in each CLI. Since TC-0004 the repository also carries a
+// `.demerzel.json` whose preparation writes `prepared/marker.txt`, added in
+// its own commit when missing, and each harness is asked to read that file. Every run starts its own herdr server, with a
 // minimal environment and a short XDG_CONFIG_HOME, keeps the Demerzel state in
 // a temporary folder, and writes a JSON report.
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatch, status, close, type Backend } from "../../src/core/index.ts";
@@ -31,6 +33,36 @@ const MODELS: Record<string, { model: string; effort: string }> = {
 
 const SHORT = "docs/smoke-short.md";
 const LONG = "docs/smoke-long.md";
+const PREPARED = "docs/smoke-prepared.md";
+const MARKER = "prepared/marker.txt";
+
+// TC-0004: a preparation that writes a file the agent then reads. The
+// script uses only shell builtins and prints the worktree path, so the
+// return proves the agent read the file in its own prepared worktree. The
+// output folder is ignored, as installed dependencies are, so close
+// --discard-worktree still removes the worktree.
+function ensurePreparation(): void {
+  const root = repo as string;
+  if (existsSync(join(root, ".demerzel.json")) && existsSync(join(root, PREPARED))) return;
+  const run = (...args: string[]) => {
+    const r = git(root, args, process.env);
+    if (r.code !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+  };
+  mkdirSync(join(root, "scripts"), { recursive: true });
+  writeFileSync(join(root, "scripts", "prepare.sh"), "#!/bin/sh\n[ -d prepared ] || mkdir prepared\nprintf 'prepared in %s\\n' \"$PWD\" > prepared/marker.txt\n");
+  chmodSync(join(root, "scripts", "prepare.sh"), 0o755);
+  writeFileSync(join(root, ".demerzel.json"), `${JSON.stringify({ schema: 1, prepare: [["./scripts/prepare.sh"]] }, null, 2)}\n`);
+  mkdirSync(join(root, "docs"), { recursive: true });
+  writeFileSync(
+    join(root, PREPARED),
+    `# Prepared worktree smoke task\n\nRead the file \`${MARKER}\` in your working directory and write its content, exactly, as the only line of the return file named in the request, creating any missing folders. Do nothing else and change no other file.\n`,
+  );
+  const ignore = join(root, ".gitignore");
+  const current = existsSync(ignore) ? readFileSync(ignore, "utf8") : "";
+  if (!current.split("\n").includes("prepared/")) writeFileSync(ignore, `${current}${current === "" || current.endsWith("\n") ? "" : "\n"}prepared/\n`);
+  run("add", ".demerzel.json", "scripts/prepare.sh", PREPARED, ".gitignore");
+  run("commit", "-q", "-m", "smoke preparation fixture");
+}
 
 function createRepo(): void {
   mkdirSync(repo as string, { recursive: true });
@@ -56,10 +88,13 @@ function createRepo(): void {
 
 if (!existsSync(join(repo, ".git"))) {
   createRepo();
+  ensurePreparation();
   console.log(`Criei o repositório do smoke em ${repo}.`);
   console.log("Confie esta pasta uma vez no Claude Code (`claude` dentro dela) e no Codex (`codex` dentro dela), e rode o smoke de novo.");
   process.exit(3);
 }
+
+ensurePreparation();
 
 const realHerdr = Bun.which("herdr");
 if (realHerdr === null) throw new Error("herdr não está no PATH");
@@ -94,6 +129,7 @@ const report: Record<string, unknown> = {
   launches: [] as unknown[],
   concurrency: [] as unknown[],
   returns: [] as unknown[],
+  prepared: [] as unknown[],
   postcondition: null as unknown,
   leftovers: null as unknown,
 };
@@ -201,6 +237,30 @@ try {
     (report["returns"] as unknown[]).push({ id: t.id, agent: t.agent, report: t.report, collect_code: c?.code ?? null, content: c?.envelope.tasks[0]?.collected?.content ?? null });
   }
   say(`retornos: ${(report["returns"] as Array<{ report: string }>).filter((r) => r.report === "present").length}/${short.length}`);
+  save();
+
+  // TC-0004: each harness reads the file its preparation wrote, before the
+  // agent started, in its own worktree.
+  const preparedIds: string[] = [];
+  for (const harness of harnesses) {
+    const id = `SMK-${run}-${harness === "codex" ? "x" : "c"}prep`;
+    const d = await dispatch({ task: taskFor(harness, id, PREPARED), humanApproved: false }, ctx);
+    ids.push(id);
+    preparedIds.push(id);
+    const r = record(id);
+    say(`${id}: preparation ${r.project_preparation?.outcome ?? "none"}, code=${d.code}${d.envelope.tasks[0]?.launch_error ? ` launch_error=${d.envelope.tasks[0]?.launch_error}` : ""}`);
+  }
+  const pw = await cli("wait", ...preparedIds.filter(live), "--timeout", String(waitMs));
+  for (const t of pw.envelope.tasks as Array<{ id: string; agent: string; report: string }>) {
+    const r = record(t.id);
+    const markerPath = join(r.worktree, MARKER);
+    const expected = existsSync(markerPath) ? readFileSync(markerPath, "utf8").trim() : null;
+    const c = t.report === "present" ? await cli("collect", t.id) : null;
+    const content = (c?.envelope.tasks[0]?.collected?.content ?? null) as string | null;
+    const entry = { id: t.id, harness: r.harness, preparation: r.project_preparation?.outcome ?? null, prepared_before_session: r.history.findIndex((h) => h.event === "prepared") < r.history.findIndex((h) => h.event === "created" && h.detail?.["kind"] === "workspace"), expected, content, read_prepared_file: expected !== null && content?.trim() === expected };
+    (report["prepared"] as unknown[]).push(entry);
+    say(`${t.id}: read the prepared file ${entry.read_prepared_file}`);
+  }
   save();
 
   // The Claude Code postcondition with a project hook that prints another

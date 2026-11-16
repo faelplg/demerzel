@@ -5,8 +5,11 @@
 // an interposed `herdr` first on the Demerzel's PATH that forwards everything
 // to the real herdr except `agent start`, which it refuses. No harness or
 // model runs. The launch goes through the delivered backend up to the
-// registry and ends in launch-failed. At the end it stops the server, removes
-// the session folder and the sandbox, and prints what it checked.
+// registry and ends in launch-failed. Since TC-0004 both modes dispatch from
+// a base commit with a fixture `.demerzel.json`, so the core creates and
+// prepares the worktree before herdr opens the session. At the end it stops
+// the server, removes the session folder and the sandbox, and prints what it
+// checked.
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { close, dispatch, status, type Backend } from "../../src/core/index.ts";
@@ -15,6 +18,7 @@ import { git } from "../../src/core/git.ts";
 import { resolveProject } from "../../src/core/project.ts";
 import type { TaskRecord } from "../../src/core/types.ts";
 import { HerdrBackend } from "../../src/herdr/backend.ts";
+import { prepareFixture } from "../core/helpers/prepare-fixture.ts";
 import { sandbox, task } from "../core/helpers/sandbox.ts";
 
 const realHerdr = Bun.which("herdr");
@@ -53,9 +57,13 @@ serverEnv["XDG_CONFIG_HOME"] = configHome;
 
 const shim = join(sb.root, "shim");
 mkdirSync(shim);
+// Every call is logged, one argument per line and a blank line after each
+// call, so the scenario can check what the backend asked herdr for.
+const callLog = join(sb.root, "herdr-calls.log");
 writeFileSync(
   join(shim, "herdr"),
   `#!/bin/sh
+for a in "$@"; do printf '%s\\n' "$a" >> ${JSON.stringify(callLog)}; done; printf '\\n' >> ${JSON.stringify(callLog)}
 for a in "$@"; do last2="$prev $a"; prev="$a"; case "$last2" in "agent start") printf '%s\\n' '{"error":{"code":"scenario_stop","message":"o cenário recusa agent start"},"id":"cli:agent:start"}' >&2; exit 1;; esac; done
 exec ${JSON.stringify(realHerdr)} "$@"
 `,
@@ -72,6 +80,13 @@ const herdr = (...args: string[]) => {
 };
 const backend = new HerdrBackend(env, { session }, { postconditionWaitMs: 500 });
 const ctx = (b: Backend = backend) => ({ cwd: sb.repo, env, backend: b, lockIntervalMs: 20 });
+const calls = (): string[][] => (existsSync(callLog) ? readFileSync(callLog, "utf8").split("\n\n").filter(Boolean).map((c) => c.split("\n").filter((l) => l !== "")) : []);
+const fx = prepareFixture(sb);
+// What the preparation writes is ignored by Git, as installed dependencies
+// usually are, so the discard below still removes the worktree without
+// --force.
+const base = fx.commit({ schema: 1, prepare: [["bun", "prep/record.ts", "scenario"]] }, { ".gitignore": "ignored-deps/\nprepared/\n" });
+const failingBase = fx.commit({ schema: 1, prepare: [["bun", "prep/exit.ts", "5"]] });
 const record = (id: string): TaskRecord => JSON.parse(readFileSync(join(resolveProject(sb.repo, env)?.dir ?? "", "tasks", `${id}.json`), "utf8")) as TaskRecord;
 
 let server: ReturnType<typeof Bun.spawn> | null = null;
@@ -88,18 +103,36 @@ try {
   const probe = await backend.probe();
   check("sondagem do herdr real", probe.running && probe.compatible && probe.versionOk, { version: probe.version });
 
-  // Codex mode: worktree, workspace, tab and pane through the backend; the
-  // interposed herdr refuses agent start.
-  const cx = await dispatch({ task: task({ id: "TC-0099.1", writes: ["a/"], harness: "codex" }), humanApproved: false }, ctx());
+  // Codex mode: the core creates and prepares the worktree, then the
+  // backend opens workspace, tab and pane in it; the interposed herdr
+  // refuses agent start.
+  const prepared = (r: TaskRecord) => {
+    const events = r.history.map((h) => h.event);
+    const firstSession = r.history.findIndex((h) => h.event === "created" && h.detail?.["kind"] === "workspace");
+    return existsSync(join(r.worktree, "prepared", "scenario.json")) && r.project_preparation?.outcome === "succeeded" && events.indexOf("prepared") !== -1 && events.indexOf("prepared") < firstSession;
+  };
+  const cx = await dispatch({ task: task({ id: "TC-0099.1", writes: ["a/"], harness: "codex", base }), humanApproved: false }, ctx());
   const rc = record("TC-0099.1");
   check("codex: launch-failed pelo agent start recusado", cx.code === 1 && rc.lifecycle === "launch-failed", rc.history.at(-1)?.detail);
   check("codex: recursos em created", JSON.stringify(rc.created.map((c) => c.kind)) === JSON.stringify(["worktree", "workspace", "tab", "pane"]), rc.created.map((c) => c.kind));
   check("codex: worktree e branch no commit base", existsSync(rc.worktree) && git(sb.repo, ["rev-parse", rc.branch], env).stdout === rc.base.commit);
+  check("codex: worktree prepared before the session", prepared(rc), rc.history.map((h) => h.event));
+  const codexCreate = calls().find((c) => c.includes("workspace") && c.includes("create") && c.includes(`TC-0099.1 ${rc.agent_name}`)) ?? [];
+  check("codex: workspace opened with --cwd in the worktree", codexCreate[codexCreate.indexOf("--cwd") + 1] === rc.worktree, codexCreate);
 
-  const cl = await dispatch({ task: task({ id: "TC-0099.2", writes: ["b/"], harness: "claude-code", model: "claude-sonnet-5-5", effort: "low" }), humanApproved: false }, ctx());
+  const cl = await dispatch({ task: task({ id: "TC-0099.2", writes: ["b/"], harness: "claude-code", model: "claude-sonnet-5-5", effort: "low", base }), humanApproved: false }, ctx());
   const rl = record("TC-0099.2");
-  check("claude-code: launch-failed sem worktree", cl.code === 1 && rl.lifecycle === "launch-failed" && !existsSync(rl.worktree), rl.history.at(-1)?.detail);
-  check("claude-code: recursos em created", JSON.stringify(rl.created.map((c) => c.kind)) === JSON.stringify(["workspace", "tab", "pane"]), rl.created.map((c) => c.kind));
+  check("claude-code: launch-failed with the worktree created by the core", cl.code === 1 && rl.lifecycle === "launch-failed" && existsSync(rl.worktree), rl.history.at(-1)?.detail);
+  check("claude-code: recursos em created", JSON.stringify(rl.created.map((c) => c.kind)) === JSON.stringify(["worktree", "workspace", "tab", "pane"]), rl.created.map((c) => c.kind));
+  check("claude-code: worktree prepared before the session", prepared(rl), rl.history.map((h) => h.event));
+  const claudeCreate = calls().find((c) => c.includes("workspace") && c.includes("create") && c.includes(`TC-0099.2 ${rl.agent_name}`)) ?? [];
+  check("claude-code: workspace opened at the project root", claudeCreate[claudeCreate.indexOf("--cwd") + 1] === sb.repo, claudeCreate);
+
+  const failing = await dispatch({ task: task({ id: "TC-0099.3", writes: ["c/"], harness: "codex", base: failingBase }), humanApproved: false }, ctx());
+  const rf = record("TC-0099.3");
+  const sessionCalls = calls().filter((c) => c.some((a) => a.includes(rf.agent_name)));
+  check("a failed preparation: launch-failed with no herdr session", failing.code === 1 && rf.lifecycle === "launch-failed" && sessionCalls.length === 0 && JSON.stringify(rf.created.map((c) => c.kind)) === JSON.stringify(["worktree"]), failing.envelope.tasks[0]?.launch_error);
+  check("no herdr worktree create call", !calls().some((c) => c.includes("worktree") && c.includes("create")), null);
 
   const raw = herdr("api", "snapshot").json;
   const labels = (raw?.result?.snapshot?.workspaces ?? []).map((w: { label: string }) => w.label);
