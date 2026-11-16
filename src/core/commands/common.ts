@@ -326,7 +326,7 @@ export function planRecovery(registry: Registry, snapshot: Snapshot, project: Pr
     const reason: Record<string, unknown> = { reason: "interrupted", from };
     if (preparing) {
       reason["preparation"] = prep.process_group === null
-        ? "the preparation was interrupted before its first command started"
+        ? "the preparation was interrupted before any process group was recorded"
         : `the preparation was interrupted; its process group ${prep.process_group} is not stopped by the recovery and may still be running`;
       reason["process_group"] = prep.process_group;
     }
