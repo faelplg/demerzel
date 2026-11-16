@@ -397,7 +397,13 @@ Run by the core, after the worktree exists and before the session opens:
    and records both in `created`. No Git hook runs, so `.demerzel.json` is
    the one declared place for setup; checkout filters, such as a Git LFS
    smudge, still run as configured, because they are part of what checking
-   out the commit means. Before revision 0.15 the backend created them, in
+   out the commit means. A filter's command comes from the user's Git
+   configuration, not from the commit, which only names the filter in
+   `.gitattributes`. It runs under the project lock with no time limit of
+   Demerzel's own and its output goes to Git's stderr, as with
+   `herdr worktree create` before revision 0.15; a failing filter fails
+   `git worktree add`, and the task goes to `launch-failed` with what
+   exists in `created`. Before revision 0.15 the backend created them, in
    a different way per harness, with the project's hooks.
 2. It records `prepare_started_at` and releases the project lock, keeping
    the task lock (section 2.3).
@@ -428,9 +434,13 @@ Run by the core, after the worktree exists and before the session opens:
 
 A failed preparation takes the task to `launch-failed`, with `created`
 listing the branch and the worktree, both kept for the human to inspect,
-and no session or agent started. `dispatch` exits with `1`. The reason
-names the index and program of the failed command, its exit code, signal
-or the time limit, and the log path, never the log's content.
+and no session or agent started. `dispatch` exits with `1`. For a command
+that failed, the reason names its index and program, its exit code, signal,
+"left processes running" or the time limit, and the log path, never the
+log's content. For a failed identity check, every command having
+succeeded, the reason names the invariant that broke (the branch moved off
+the base commit, `HEAD` on another branch, `HEAD` detached, or `HEAD` off
+the base commit), with the commits involved, and the log path.
 
 An interrupted preparation, such as a `dispatch` killed while a command
 runs, leaves the task in `launching` with `prepare_started_at` and its task
@@ -732,7 +742,9 @@ Recusas que esta Spec acrescenta, todas sem efeito:
   ação sugerida, sem conteúdo de contrato.
 - The preparation of section 2.6 is the only thing Demerzel runs from the
   project, and only the commands committed in `.demerzel.json` at the base
-  commit. They run with the user's environment and network, as when the
+  commit. Git hooks do not run at worktree creation; checkout filters do,
+  with the commands the user's own Git configuration gives them (section
+  2.6). They run with the user's environment and network, as when the
   human prepares a worktree by hand, so trusting a project to dispatch is
   also trusting its preparation. Their output stays in the registry log and
   is never sent to the harness or printed by Demerzel.

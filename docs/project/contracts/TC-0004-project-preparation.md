@@ -290,6 +290,8 @@ Preparation (output 3):
 - [ ] P9. A preparation that commits, switches the branch or detaches
   `HEAD` in the worktree fails the identity check, for Codex and Claude
   Code alike, before any session effect; untracked and ignored files pass.
+  The reason names the broken invariant and the commits involved, not a
+  command (Spec 2.6).
 
 Locks (output 4):
 
@@ -518,6 +520,9 @@ Known limitations, to record in the report:
 - preparation processes left running by a killed `dispatch` are not
   stopped, and may keep writing in the worktree after the recovery; the
   recovery's reason names their process group;
+- checkout filters, such as a Git LFS smudge, still run inside
+  `git worktree add`, under the project lock and without Demerzel's time
+  limit or log, as before this contract;
 - a process that leaves its group, as with `setsid`, is not seen by the
   rule that a command is done when its group is empty;
 - worktree creation runs no Git hook, which changes what a project with a
