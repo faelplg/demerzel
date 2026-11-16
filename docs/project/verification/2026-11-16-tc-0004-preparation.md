@@ -21,9 +21,9 @@ Build entry commit: `d85f0fe`, the merge of
 `DONE` for the Build's own part: every requirement of section 7 has a test
 or evidence, `bun run check` and `bun run test:core` pass, the scenario
 passed in both modes, and every mutation of section 11 was shown failing.
-One change to an existing test falls outside the exception of output 6 and
-needs the owner's acceptance: the boundary test's list of files that may
-spawn processes (see "Existing tests changed"). The contract's `DONE` still
+One change to an existing test falls outside the exception of output 6:
+the boundary test's list of files that may spawn processes (see "Existing
+tests changed"). The owner accepted it on 2026-11-16. The contract's `DONE` still
 waits for the green CI on the Build PR, the smoke with the owner present,
 and the independent critique, which the orchestrator adds here.
 
@@ -107,7 +107,7 @@ Each by the exception of output 6, except the last.
 | `test/herdr/backend.test.ts` > `codex`, `claude-code`, `blocked startup`, `unconfirmed or broken agent start`, `claude-code agent start error after the hook`, `a creation that answers badly after creating`, `an agent that started but answered badly`, and the Claude Code cases of `a creation answer without the tab` and `... without the workspace object ...` | No `worktree` among the kinds the backend reports; the Codex call is `workspace create --cwd <worktree>` | The backend no longer creates the worktree |
 | `test/herdr/backend.test.ts` > `claude-code postcondition failures` | The missing-branch case calls `launch` directly with no worktree; the base-commit case creates its worktree first | The hook no longer creates one, so each case sets up the state it checks |
 | `test/herdr/helpers/fake-herdr.ts` | `worktree create` is no longer served | A call that comes back fails as `unknown_command` (W2) |
-| `test/herdr/boundary.test.ts` > `processes run only from ...` | `src/core/prepare.ts` added to the allowed files | **Outside the exception.** Spec 2.6 makes the core run the project's commands, and this test allows only `run.ts`, `git.ts` and `python.ts` to spawn. The test keeps its purpose, with one more allowed file named in its comment. Needs the owner's acceptance |
+| `test/herdr/boundary.test.ts` > `processes run only from ...` | `src/core/prepare.ts` added to the allowed files | **Outside the exception.** Spec 2.6 makes the core run the project's commands, and this test allows only `run.ts`, `git.ts` and `python.ts` to spawn. The test keeps its purpose, with one more allowed file named in its comment. Accepted by the owner on 2026-11-16 |
 
 No test of `test/radiant/` changed, and no no-effect check changed its file
 list: `tasksSnapshot` still compares only `tasks/`.
