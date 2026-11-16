@@ -991,8 +991,8 @@ sufixo vazio.
 Revision 0.15, 2026-11-14, for
 [faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30), after
 the [prepared worktree probe](verification/2026-11-14-prepared-worktree-probe.md).
-Approved by the owner on 2026-11-14; they hold when the owner approves the
-PR of TC-0004:
+Decided by the owner on 2026-11-14 and 2026-11-15; they take effect when
+the PR of TC-0004 is merged, which also activates the contract:
 
 | Question | Decision |
 | --- | --- |

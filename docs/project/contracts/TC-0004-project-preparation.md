@@ -8,8 +8,7 @@ by the owner and applied in revision 2 and in Spec 0.15, before any Build
 **Project:** `demerzel`
 **Iteration:** Plan 0.8, increment 7
 **Status:** `READY`
-**Lifecycle:** `draft` until the critique is applied and the owner approves
-the PR; `active` when `ACTIVE.md` points here on `main`
+**Lifecycle:** `draft` until the owner merges its PR; `active` when `ACTIVE.md` points here on `main`
 **Owner:** Fael (human); Build by an agent in the `radiant-dev` role;
 orchestrator responsible for the independent critique
 **Risk tier:** `2`. Demerzel starts running commands declared by the
