@@ -452,6 +452,25 @@ describe("running the preparation (P1 to P9)", () => {
     expect(alive(Number(readFileSync(pidfile, "utf8")))).toBe(false);
   });
 
+  // Protects: P6, a preparation whose log cannot be opened fails like any
+  // other preparation: the task goes to launch-failed with the reason, no
+  // command runs and no session opens. Fails if the error escapes dispatch
+  // and leaves the task in launching.
+  test("a log that cannot be opened", async () => {
+    fx.commit({ schema: 1, prepare: [["bun", "prep/record.ts", "nolog"]] });
+    // A file where the task's log folder goes.
+    mkdirSync(join(registryDir(), "logs"), { recursive: true });
+    writeFileSync(join(registryDir(), "logs", "TC-0099.1"), "");
+    const be = backend(sb);
+    const d = await dispatch({ task: prep(), humanApproved: false }, context(sb, be));
+    expect(d.code).toBe(1);
+    expect(d.envelope.tasks[0]?.launch_error).toContain("the preparation log could not be opened");
+    expect(record().lifecycle).toBe("launch-failed");
+    expect(record().project_preparation?.outcome).toBe("failed");
+    expect(existsSync(join(worktree(), "prepared", "nolog.json"))).toBe(false);
+    expect(be.effectCalls()).toEqual([]);
+  });
+
   // Protects: P5 and P8, no command starts once the limit has passed: the
   // preparation fails with the time limit before spawning it, so no
   // process group is recorded. Fails if a command is spawned after the

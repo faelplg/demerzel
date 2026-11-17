@@ -83,8 +83,16 @@ export async function runPreparation(options: {
 }): Promise<PrepareOutcome> {
   const { commands, worktree, limits } = options;
   const env = Object.fromEntries(Object.entries(options.env).filter((e): e is [string, string] => e[1] !== undefined));
-  mkdirSync(dirname(options.log), { recursive: true });
-  const fd = openSync(options.log, "a", 0o600);
+  // A log that cannot be opened fails the preparation like a command would,
+  // so the task still reaches launch-failed and no command runs.
+  let fd: number;
+  try {
+    mkdirSync(dirname(options.log), { recursive: true });
+    fd = openSync(options.log, "a", 0o600);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? "unknown error";
+    return { ok: false, results: [], reason: `the preparation log could not be opened (${code}); log: ${options.log}` };
+  }
   const deadline = Date.now() + limits.limitMs;
   const results: CommandResult[] = [];
   const fail = (result: CommandResult, how: string): PrepareOutcome => {
