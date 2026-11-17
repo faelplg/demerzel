@@ -12,9 +12,6 @@ export class Registry {
   readonly lockPath: string;
   readonly locksDir: string;
   readonly logsDir: string;
-  // Spec 2.6: an empty folder given to Git as core.hooksPath, so creating a
-  // worktree runs no hook.
-  readonly noHooksDir: string;
 
   constructor(readonly dir: string) {
     this.tasksDir = join(dir, "tasks");
@@ -22,7 +19,6 @@ export class Registry {
     this.lockPath = join(dir, "lock");
     this.locksDir = join(dir, "locks");
     this.logsDir = join(dir, "logs");
-    this.noHooksDir = join(dir, "no-hooks");
   }
 
   ensure(): void {

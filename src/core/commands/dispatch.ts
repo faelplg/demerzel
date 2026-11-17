@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import type { LaunchPlan } from "../backend.ts";
 import { git, gitOk } from "../git.ts";
 import type { ProjectLock } from "../lock.ts";
@@ -161,9 +162,16 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     };
 
     // Spec 2.6, step 1: the core creates the branch and the worktree for
-    // every harness, with no Git hook.
-    mkdirSync(registry.noHooksDir, { recursive: true });
-    const added = git(project.mainCheckout, ["-c", `core.hooksPath=${registry.noHooksDir}`, "worktree", "add", "-q", "-b", task.branch, worktree, base.commit], ctx.env);
+    // every harness, with no Git hook: core.hooksPath is a folder created
+    // new and private for this creation, so nothing can be in it, and
+    // removed right after.
+    const noHooks = mkdtempSync(join(registry.dir, "no-hooks-"));
+    let added;
+    try {
+      added = git(project.mainCheckout, ["-c", `core.hooksPath=${noHooks}`, "worktree", "add", "-q", "-b", task.branch, worktree, base.commit], ctx.env);
+    } finally {
+      rmSync(noHooks, { recursive: true, force: true });
+    }
     if (existsSync(worktree) && gitOk(project.mainCheckout, ["show-ref", "--verify", "--quiet", `refs/heads/${task.branch}`], ctx.env)) {
       const resource = { kind: "worktree" as const, path: worktree, branch: task.branch };
       record.created.push(resource);

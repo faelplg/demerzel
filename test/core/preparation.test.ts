@@ -263,6 +263,23 @@ describe("worktree created by the core (W1, W5)", () => {
       expect(existsSync(marker)).toBe(false);
     });
   }
+
+  // Protects: W1, the folder given to Git as core.hooksPath is new and
+  // empty at each worktree creation, so a hook left in the registry, as in
+  // a folder an earlier version reused, never runs. Fails if a shared
+  // folder that already exists is reused.
+  test("no hook from a folder left in the registry", async () => {
+    const marker = join(sb.root, "stale-hook-ran");
+    fx.commit({ schema: 1, prepare: [["bun", "prep/record.ts", "stale"]] });
+    expect((await dispatch({ task: prep(), humanApproved: false }, context(sb, backend(sb)))).code).toBe(0);
+    for (const name of ["no-hooks", ...readdirSync(registryDir()).filter((n) => n.startsWith("no-hooks"))]) {
+      mkdirSync(join(registryDir(), name), { recursive: true });
+      writeFileSync(join(registryDir(), name, "post-checkout"), `#!/bin/sh\n: > '${marker}'\n`, { mode: 0o755 });
+    }
+    const d = await dispatch({ task: prep({ id: "TC-0099.2", writes: ["src/two/"] }), humanApproved: false }, context(sb, backend(sb)));
+    expect(d.code).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+  });
 });
 
 describe("running the preparation (P1 to P9)", () => {
