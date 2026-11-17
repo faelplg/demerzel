@@ -12,8 +12,9 @@ map; in Claude Code, `CLAUDE.md` with the line `@AGENTS.md`.
 The state map and the chosen commit are in `.radiant.json` at this root. Read
 the artifacts the task needs and the contract pointer given in the map. This
 product's rules and commands belong to the local context indicated there.
-When the map has an `engineering_profile`, read it together with the Baseline
-in the Radiant checkout before starting a Build.
+Read the `engineering_profile` at `docs/project/ENGINEERING-PROFILE.md`
+together with the Baseline and its selected stack pack in the pinned Radiant
+checkout before starting a Build.
 
 Stack: Bun 1.4.2 ou acima e TypeScript estrito, sem dependências de runtime.
 Comandos, da raiz:
