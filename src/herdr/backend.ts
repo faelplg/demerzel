@@ -245,7 +245,11 @@ export class HerdrBackend implements Backend {
 
   private modelArgs(plan: LaunchPlan, preparation: Preparation): string[] {
     const effort = preparation.effort.applied;
-    if (plan.harness === "codex") return ["--model", plan.model, ...(effort === null ? [] : ["-c", `model_reasoning_effort=${effort}`])];
+    // Spec 2.5: Codex skips its startup update check in the sessions
+    // Demerzel opens, so a pending update never stops the launch.
+    if (plan.harness === "codex") {
+      return ["-c", "check_for_update_on_startup=false", "--model", plan.model, ...(effort === null ? [] : ["-c", `model_reasoning_effort=${effort}`])];
+    }
     return ["--model", plan.model, ...(effort === null ? [] : ["--effort", effort])];
   }
 
