@@ -421,7 +421,24 @@ describe("launch (H5, H6, H7)", () => {
     expect(kinds).toEqual(["workspace", "tab", "pane", "agent"]);
     const [create, start] = fake.calls();
     expect(create).toEqual(["workspace", "create", "--cwd", p.worktreePath, "--label", p.label, "--no-focus"]);
-    expect(start).toEqual(["agent", "start", p.agentName, "--kind", "codex", "--pane", "w1:p1", "--timeout", "90000", "--", "--model", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"]);
+    expect(start).toEqual(["agent", "start", p.agentName, "--kind", "codex", "--pane", "w1:p1", "--timeout", "90000", "--", "-c", "check_for_update_on_startup=false", "--model", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium"]);
+  });
+
+  // Protects: Spec 2.5, revision 0.16: every Codex launch turns off the
+  // update check for that session, with or without an effort, so a pending
+  // update never stops the launch; Claude Code gets no such flag. Fails if
+  // the override is dropped, tied to the effort, or passed to Claude Code.
+  test("codex skips its update check", async () => {
+    const off = ["-c", "check_for_update_on_startup=false"];
+    const startOf = async (harness: string, effort: string | null, n: number) => {
+      const p = plan({ harness, effort, agentName: `dz-u00000000000000${n}`, branch: `radiant/u-${n}`, worktreePath: join(sb.root, "wt", `u-${n}`) });
+      await launch(herdr(), p);
+      const start = fake.calls().find((c) => c[2] === "agent" && c[3] === "start" && c[4] === p.agentName) ?? [];
+      return start.slice(start.indexOf("--") + 1);
+    };
+    expect(await startOf("codex", null, 1)).toEqual([...off, "--model", "gpt-6.1-sol"]);
+    expect((await startOf("codex", "high", 2)).slice(0, 2)).toEqual(off);
+    expect((await startOf("claude-code", "low", 3)).join(" ")).not.toContain("check_for_update");
   });
 
   // Protects: the Claude Code arguments, with the agent entering the

@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.15, 2026-11-14
+Revisão da Spec: 0.16, 2026-11-17
 Frame: [revisão 0.4](FRAME.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -353,13 +353,20 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   | `claude-code` | `claude` | `--model <id>` | `--effort <nível>` |
   | `codex` | `codex` | `--model <id>` | `-c model_reasoning_effort=<nível>` |
 
+  Every Codex launch also passes `-c check_for_update_on_startup=false`
+  before `--model`, so a pending update never stops it at Codex's update
+  prompt. The override applies only to that session; Codex started outside
+  Demerzel keeps the user's own update check.
+
   O backend só passa um nível de esforço que foi conferido na versão
   instalada do CLI e registrado no Plan; qualquer outro é omitido do
   lançamento, com o motivo gravado em `recorded`, antes do primeiro efeito.
-  Hoje: Claude Code 2.1.286, `low`, `medium`, `high`, `xhigh` e `max`; Codex
-  0.166.0, `minimal`, `low`, `medium`, `high` e `xhigh`. O backend nunca passa
+  The levels were last checked on Claude Code 2.1.286 (`low`, `medium`,
+  `high`, `xhigh` and `max`) and on Codex 0.166.0 (`minimal`, `low`,
+  `medium`, `high` and `xhigh`). The revision 0.16 probe ran on Codex
+  0.169.0 but did not check the levels again. O backend nunca passa
   flags de permissão ou de bypass; o harness lançado usa a configuração do
-  próprio usuário.
+  próprio usuário, except for the Codex update check above.
 - Startup bloqueado (`agent_not_ready`) deixa a tarefa `launched`, com
   `request_sent: false`, observada como `blocked`. O pedido sai depois por
   `resume`. No Claude Code, a pós-condição de lançamento é conferida também
@@ -1038,3 +1045,11 @@ reason, rereading a task after taking
 its lock, publishing recovery only past all refusals, the definition of an
 absent `.demerzel.json`, and a read-only `status`.
 
+Revision 0.16, 2026-11-17, for
+[faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43), after
+the [Codex update prompt probe](verification/2026-11-17-codex-update-prompt-probe.md).
+Decided by the owner on 2026-11-17:
+
+| Question | Decision |
+| --- | --- |
+| Codex update prompt at launch | Demerzel passes `-c check_for_update_on_startup=false` on every Codex launch. Alternative discarded: an owner prerequisite that turns the check off in the user's Codex configuration, which changes every Codex session and depends on each machine being set up |
