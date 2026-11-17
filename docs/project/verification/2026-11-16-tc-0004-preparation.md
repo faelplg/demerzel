@@ -307,6 +307,11 @@ Run 43931598001 on PR #49 at `f0071ea`: `check (macos-latest)` and
 `check (ubuntu-latest)` pass
 (https://github.com/faelplg/demerzel/actions/runs/43931598001).
 
+After the fixes from the independent verification and the review, run
+43950120407 at `ee68a5e` and run 44008617943 at `474dab4` passed on both
+systems
+(https://github.com/faelplg/demerzel/actions/runs/44008617943).
+
 ## Smoke
 
 `bun run smoke:herdr` with the owner present, 2026-11-16, exit 0. Versions:
