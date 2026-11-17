@@ -29,7 +29,8 @@ was done with each finding, were added by the orchestrator below.
 
 ### Changed
 
-Four commits on the entry commit, and two after the independent verification:
+Four commits on the entry commit, two after the independent verification,
+and two after the review comments on the PR:
 
 - `cf8c075`, outputs 1 to 6:
   - `src/core/project-config.ts` (new): reads `.demerzel.json` from the base
@@ -104,6 +105,15 @@ Four commits on the entry commit, and two after the independent verification:
   the limit has passed fails with the time limit before it is spawned, so
   no process group is recorded for it. Test: a new case in
   `test/core/preparation.test.ts`.
+- `bad2295`, output 1, after the PR review: each `git worktree add` gets
+  a new private folder from `mkdtemp` in the registry as `core.hooksPath`,
+  removed right after, instead of the shared `<registry>/no-hooks`, which
+  was only created and never checked. Test: "no hook from a folder left in
+  the registry".
+- `2787d13`, output 4, after the PR review: a preparation log that cannot
+  be opened fails the preparation with the reason, instead of an error
+  that escaped `dispatch` and left the task in `launching`. Test: "a log
+  that cannot be opened".
 
 ### Existing tests changed
 
@@ -353,3 +363,27 @@ boundary test's allowlist in a contract's exception for changed tests when
 the contract adds a module that crosses that boundary, and check
 `git rev-list <entry>..HEAD` against the report's commit list in the
 readback.
+
+## Review comments on the PR
+
+The Copilot review on
+[faelplg/demerzel#49](https://github.com/faelplg/demerzel/pull/49) left
+four comments, read as data and checked against the code.
+
+1. The process group is recorded right after `spawn`, not before the
+   command starts. Declined: it is the first item of "Engineering notes".
+   Closing the window would need a wrapper process, which Spec 2.6 rules
+   out, and the recovery says so when no group was recorded (`0cdc49a`).
+2. A hook left in `<registry>/no-hooks` would run during
+   `git worktree add`. Accepted and fixed in `bad2295`. The new test failed
+   before the fix, with the hook's marker written, and passes after it.
+3. A log that cannot be opened escaped `dispatch` and left the task in
+   `launching`. Accepted and fixed in `2787d13`. The new test failed
+   before the fix with `EEXIST` thrown out of `dispatch`, and passes after
+   it.
+4. The PR description still listed CI, smoke and verification as pending.
+   Accepted: the description now matches this report.
+
+`bun run check` passes after both fixes: 218 core tests and 201 in the
+other suites. These two fixes came after the independent verification and
+were not verified by it.
