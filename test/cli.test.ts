@@ -5,8 +5,11 @@ import { fileURLToPath } from "node:url";
 import pkg from "../package.json" with { type: "json" };
 import { dispatch } from "../src/core/index.ts";
 import type { Env } from "../src/core/env.ts";
+import { formatText } from "../src/cli/text.ts";
+import { ProjectLock } from "../src/core/lock.ts";
 import { resolveProject } from "../src/core/project.ts";
 import { HerdrBackend } from "../src/herdr/backend.ts";
+import { prepareFixture } from "./core/helpers/prepare-fixture.ts";
 import { sandbox, task, writeReport, type Sandbox } from "./core/helpers/sandbox.ts";
 import { installFakeHerdr, type FakeHerdr } from "./herdr/helpers/fake.ts";
 
@@ -159,6 +162,37 @@ describe("the five commands over the herdr backend (H11, H12)", () => {
     expect(x.stdout).toContain("agent=unknown");
     expect(x.stdout).toContain("erro do backend: herdr workspace close: close_failed");
     expect(record().lifecycle).toBe("launched");
+  });
+
+  // Protects: TC-0004, EB-07, a failed preparation reaches the envelope and
+  // the text with the command, how it ended and the log path, never the
+  // log's content; and task-busy reaches the user as a refusal. Fails if
+  // the text drops the reason or calls it a backend error.
+  test("a failed preparation and task-busy", async () => {
+    const fx = prepareFixture(sb);
+    const base = fx.commit({ schema: 1, prepare: [["bun", "prep/exit.ts", "4"]] });
+    const d = await launched({ base });
+    expect(d.code).toBe(1);
+    const t = d.envelope.tasks[0];
+    expect(t?.launch_error).toContain("preparation command 1 (bun) exited with 4; log: ");
+    expect(t?.backend_error).toBeNull();
+    expect(t?.preparation).toEqual({ outcome: "failed", log: expect.stringContaining("prepare.log") });
+    const text = formatText(d.envelope).stdout;
+    expect(text).toContain("lifecycle=launch-failed");
+    expect(text).toContain("launch failed: preparation command 1 (bun) exited with 4; log: ");
+    expect(text).not.toContain("erro do backend");
+    expect(text).not.toContain("LOG-CONTENT-7f3a");
+
+    const holder = ProjectLock.tryAcquire(join(resolveProject(sb.repo, sb.env)?.dir ?? "", "locks", "TC-0099.1.lock"));
+    try {
+      const busy = await cli(["close", "TC-0099.1"]);
+      expect(busy.code).toBe(2);
+      expect(busy.stderr).toContain("recusa task-busy: task TC-0099.1 is busy");
+      const json = JSON.parse((await cli(["collect", "TC-0099.1", "--json"])).stdout);
+      expect(json.refusal.code).toBe("task-busy");
+    } finally {
+      holder?.release();
+    }
   });
 
   // Protects: H12, a bad herdr block and a stopped herdr are refusals with

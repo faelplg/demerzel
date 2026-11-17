@@ -2,7 +2,8 @@ import { dlopen, FFIType } from "bun:ffi";
 import { closeSync, constants, ftruncateSync, openSync, writeSync } from "node:fs";
 
 // Spec 2.3: the project lock is flock(LOCK_EX) on the `lock` file, asked
-// without blocking and retried. The kernel releases it when the process
+// without blocking and retried. Since revision 0.15 the same flock guards
+// each task, on `locks/<id>.lock`, and `status` probes it read-only. The kernel releases it when the process
 // ends, so there is no stale lock to take over. The pid and time written into
 // the file are for diagnosis only.
 
@@ -46,6 +47,31 @@ export class ProjectLock {
     const lock = new ProjectLock(fd);
     lock.stamp();
     return lock;
+  }
+
+  // Spec 2.3, revision 0.15, for status: opens an existing lock file
+  // read-only, never creating or stamping it, and tries the lock once. When
+  // it is free, `whileFree` runs while the lock is held and its result comes
+  // back; when another open file holds it, "held". A task with no lock file
+  // has a free task lock.
+  static probe<T>(path: string, whileFree: () => T): T | "held" {
+    let fd: number;
+    try {
+      fd = openSync(path, constants.O_RDONLY);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return whileFree();
+      throw error;
+    }
+    try {
+      if (flock()(fd, LOCK_EX | LOCK_NB) !== 0) return "held";
+      try {
+        return whileFree();
+      } finally {
+        flock()(fd, LOCK_UN);
+      }
+    } finally {
+      closeSync(fd);
+    }
   }
 
   // Retries until the lock is free or the timeout passes. Null on timeout.

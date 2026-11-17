@@ -1,6 +1,6 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.8, 2026-11-14
+Revisão do Plan: 0.9, 2026-11-16
 Spec: [revisão 0.15](SPEC.md)
 Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
 
@@ -23,6 +23,7 @@ Revision 0.6 closes increment 6, records the owner's decision to continue,
 and orders the open issues by risk.
 Revision 0.7 adds the Codex update prompt as increment 8.
 Revision 0.8 gives increment 7 its Spec change and its Task Contract.
+Revision 0.9 closes increment 7.
 
 ## Feito
 
@@ -35,6 +36,7 @@ Revision 0.8 gives increment 7 its Spec change and its Task Contract.
 - 4, backend herdr e smoke ([faelplg/demerzel#13](https://github.com/faelplg/demerzel/pull/13), [faelplg/demerzel#14](https://github.com/faelplg/demerzel/pull/14), [faelplg/demerzel#15](https://github.com/faelplg/demerzel/pull/15), [faelplg/demerzel#16](https://github.com/faelplg/demerzel/pull/16)): TC-0002 em DONE, com o backend herdr, `resume`, `status`, `wait`, `collect` e `close` no CLI, o cenário contra o herdr real em 16/16 e o smoke com 0 de 5 intervenções no Claude Code e no Codex. Treze verificações independentes, doze no Codex com FAIL e a última, com PASS, no Antigravity; uma emenda do owner ao contrato mudou o `close` do núcleo.
 - 5, integração Radiant ([faelplg/demerzel#22](https://github.com/faelplg/demerzel/pull/22), [faelplg/demerzel#23](https://github.com/faelplg/demerzel/pull/23), [faelplg/demerzel#24](https://github.com/faelplg/demerzel/pull/24)): TC-0003 em DONE, com a correção do achado P1 no `resume`, `src/radiant/` e o `dispatch` no CLI, testados contra o Radiant real no pin, local e no CI. Duas verificações independentes no Codex: a primeira com FAIL e dois achados corrigidos, a segunda confirmando as correções; quatro decisões do owner sobre códigos de recusa entraram na Spec 0.14, e uma emenda do owner ao contrato aceitou `src/radiant/python.ts` no teste de fronteira de processos.
 - 6, smallest experiment ([faelplg/demerzel#27](https://github.com/faelplg/demerzel/issues/27), [faelplg/aikm#45](https://github.com/faelplg/aikm/pull/45)): TC-0025 in AIKM dispatched its three units through Demerzel, and the orchestrator accepted all three. Units 1 and 2 were the experiment's two independent units, in parallel on Claude Code and Codex; unit 3 depended on both and ran on Claude Code after them. No Frame refutation condition was refuted: owner time and the split amendments came out inconclusive, and the other three held. The Codex update prompt stopped every Codex launch, and Demerzel reported it as `blocked` without sending the request. The Learn Back candidates for Demerzel became [faelplg/demerzel#29](https://github.com/faelplg/demerzel/issues/29) and [faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30), the Codex update prompt became [faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43), and the Learn Back to Radiant is [faelplg/radiant#28](https://github.com/faelplg/radiant/issues/28). The record is in TC-0025, section Demerzel experiment.
+- 7, project preparation ([faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30), [faelplg/demerzel#48](https://github.com/faelplg/demerzel/pull/48), [faelplg/demerzel#49](https://github.com/faelplg/demerzel/pull/49)): TC-0004 in DONE. The core creates and prepares the worktree from the base commit's `.demerzel.json` before the session, without the project lock and under a task lock, for both harnesses. The herdr scenario passed 22/22, and in the smoke each real agent read the file its preparation wrote. One independent verification in Antigravity with Gemini 4 Argon returned DONE with two low findings, both fixed; the owner accepted `src/core/prepare.ts` in the process boundary test.
 
 ## Próximos
 
@@ -51,14 +53,6 @@ Codex launch hits, then the read-only views, and last the changes that open
 egress questions. Each one changes the Spec before its Build; whether it needs
 a Task Contract is decided when it comes next.
 
-7. Prepare dependencies in dispatched worktrees
-   ([faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30)).
-   Every TC-0025 unit started without `node_modules` and improvised its own
-   install. Contract: [TC-0004](contracts/TC-0004-project-preparation.md),
-   on Spec 0.15 and the
-   [prepared worktree probe](verification/2026-11-14-prepared-worktree-probe.md).
-   Closes with `bun run check`, the herdr scenario preparing both modes, and
-   the smoke with each real agent reading a file the preparation wrote.
 8. Launch Codex without stopping at its update prompt
    ([faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43)).
    The update prompt stopped every Codex launch in TC-0025.

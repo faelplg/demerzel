@@ -7,8 +7,11 @@ by the owner and applied in revision 2 and in Spec 0.15, before any Build
 ([critique](../verification/2026-11-14-tc-0004-grill.md))
 **Project:** `demerzel`
 **Iteration:** Plan 0.8, increment 7
-**Status:** `READY`
-**Lifecycle:** `draft` until the owner merges its PR; `active` when `ACTIVE.md` points here on `main`
+**Status:** `DONE`
+**Lifecycle:** `done` on 2026-11-16, after the independent verification,
+with the Build in
+[faelplg/demerzel#49](https://github.com/faelplg/demerzel/pull/49);
+evidence in `docs/project/verification/2026-11-16-tc-0004-preparation.md`
 **Owner:** Fael (human); Build by an agent in the `radiant-dev` role;
 orchestrator responsible for the independent critique
 **Risk tier:** `2`. Demerzel starts running commands declared by the

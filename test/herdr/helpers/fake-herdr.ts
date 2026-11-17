@@ -187,18 +187,8 @@ function answerCreate(result: Record<string, unknown>, id: string): never {
   ok(result, id);
 }
 
-if (group === "worktree" && verb === "create") {
-  if (s.createAnswer === "empty-noop") ok({}, "cli:worktree:create");
-  const cwd = opt(rest, "--cwd") ?? "";
-  const branch = opt(rest, "--branch") ?? "";
-  const base = opt(rest, "--base") ?? "";
-  const path = opt(rest, "--path") ?? "";
-  const r = Bun.spawnSync(["git", "-C", cwd, "worktree", "add", "-q", "-b", branch, path, base], { env: process.env, stdout: "pipe", stderr: "pipe" });
-  if (r.exitCode !== 0) fail("worktree_create_failed", r.stderr.toString().trim(), "cli:worktree:create");
-  const w = createWorkspace(opt(rest, "--label") ?? "", path);
-  save();
-  answerCreate(sessionResult(w, "worktree_created"), "cli:worktree:create");
-}
+// Since Spec 0.15 the core creates every worktree; `herdr worktree create`
+// is not served, so a backend that calls it again fails as unknown_command.
 
 if (group === "workspace" && verb === "create") {
   if (s.createAnswer === "empty-noop") ok({}, "cli:workspace:create");

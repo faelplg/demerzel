@@ -59,13 +59,11 @@ export function versionAtLeast(version: string, minimum: string): boolean {
   return !a.prerelease || b.prerelease;
 }
 
-// Spec 2.5: the WorktreeCreate hook runs git worktree add with Git's output
-// on stderr and prints only the path on stdout.
+// Spec 2.5, revision 0.15: the WorktreeCreate hook creates nothing. It only
+// prints the path of the worktree the core already created and prepared,
+// quoted for POSIX sh.
 export function hookSettings(plan: LaunchPlan): string {
-  const command = [
-    "git", "-C", shQuote(plan.mainCheckout), "worktree", "add", "-b", shQuote(plan.branch), shQuote(plan.worktreePath), shQuote(plan.baseCommit),
-  ].join(" ");
-  const hook = `${command} >&2 && printf '%s\\n' ${shQuote(plan.worktreePath)}`;
+  const hook = `printf '%s' ${shQuote(plan.worktreePath)}`;
   return JSON.stringify({ hooks: { WorktreeCreate: [{ hooks: [{ type: "command", command: hook }] }] } });
 }
 
@@ -304,14 +302,6 @@ export class HerdrBackend implements Backend {
       if (resource.kind === "pane") ids.pane = resource.id;
       onCreated(resource);
     };
-    const branchCommit = (): string | null => {
-      const r = git(plan.mainCheckout, ["rev-parse", "--verify", "--quiet", `refs/heads/${plan.branch}`], this.env);
-      return r.code === 0 ? r.stdout : null;
-    };
-    const worktreeConfirmed = (): boolean => existsSync(plan.worktreePath) && branchCommit() !== null;
-    const reportWorktree = (): void => {
-      if (worktreeConfirmed()) report({ kind: "worktree", path: plan.worktreePath, branch: plan.branch });
-    };
     // The IDs of a creation answer must agree: the workspace, the tab's
     // workspace and the root pane's workspace, and the tab and the root
     // pane's tab. A contradictory answer records nothing, since a wrong ID
@@ -336,41 +326,36 @@ export class HerdrBackend implements Backend {
       return whole ? { pane, reason: "" } : { pane: null, reason: "confirmação sem workspace, aba ou root_pane" };
     };
     // When a confirmation is lost or broken, the real state decides what the
-    // launch created: the workspace by its label, unique across projects; the
-    // agent by its name; the worktree by Git. Nothing is created here.
+    // launch created: the workspace by its label, unique across projects, and
+    // the agent by its name. The worktree is the core's. Nothing is created
+    // here.
     const failed = async (reason: string): Promise<LaunchOutcome> => {
-      const order = plan.harness === "codex" ? ["worktree", "session", "agent"] : ["session", "worktree", "agent"];
       let snap: Snapshot | null = null;
       try {
         snap = await this.snapshot();
       } catch {
         snap = null;
       }
-      for (const step of order) {
-        if (step === "worktree") reportWorktree();
-        if (step === "session" && snap !== null) {
-          const w = snap.workspaces.find((x) => x.label === plan.label);
-          if (w !== undefined) {
-            report({ kind: "workspace", id: w.id });
-            if (w.tab !== null) report({ kind: "tab", id: w.tab });
-            if (w.pane !== null) report({ kind: "pane", id: w.pane });
-          }
+      if (snap !== null) {
+        const w = snap.workspaces.find((x) => x.label === plan.label);
+        if (w !== undefined) {
+          report({ kind: "workspace", id: w.id });
+          if (w.tab !== null) report({ kind: "tab", id: w.tab });
+          if (w.pane !== null) report({ kind: "pane", id: w.pane });
         }
-        if (step === "agent" && snap !== null && snap.agents.some((a) => a.name === plan.agentName)) report({ kind: "agent", name: plan.agentName });
+        if (snap.agents.some((a) => a.name === plan.agentName)) report({ kind: "agent", name: plan.agentName });
       }
       return { kind: "failed", reason, ids };
     };
     const startTimeout = String(this.options.startTimeoutMs ?? 90_000);
 
+    // Codex: the session opens in the worktree the core created and
+    // prepared (Spec 2.5, revision 0.15).
     if (plan.harness === "codex") {
-      const created = this.create([
-        "worktree", "create", "--cwd", plan.mainCheckout, "--branch", plan.branch, "--base", plan.baseCommit, "--path", plan.worktreePath, "--label", plan.label, "--no-focus",
-      ]);
+      const created = this.create(["workspace", "create", "--cwd", plan.worktreePath, "--label", plan.label, "--no-focus"]);
       if (!created.ok) return failed(created.reason);
-      reportWorktree();
-      if (!reported.has("worktree")) return failed("herdr worktree create: confirmação sem worktree no Git");
       const session = reportSession(created.result);
-      if (session.pane === null) return failed(`herdr worktree create: ${session.reason}`);
+      if (session.pane === null) return failed(`herdr workspace create: ${session.reason}`);
       const pane = session.pane;
       const started = await this.startAgent(plan.agentName, ["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
       if (started.kind === "failed") return failed(started.reason);
@@ -379,7 +364,8 @@ export class HerdrBackend implements Backend {
     }
 
     // Claude Code: the session opens at the project root and Claude Code
-    // creates the worktree through the WorktreeCreate hook.
+    // enters the worktree through the WorktreeCreate hook, which only prints
+    // its path.
     const settings = preparation.data["settings"];
     const worktreeName = preparation.data["worktreeName"];
     if (typeof settings !== "string" || typeof worktreeName !== "string") return { kind: "failed", reason: "preparo do Claude Code sem settings ou nome de worktree", ids };
@@ -392,9 +378,6 @@ export class HerdrBackend implements Backend {
     const started = await this.startAgent(plan.agentName, [
       "agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", "--worktree", worktreeName, "--settings", settings, ...this.modelArgs(plan, preparation),
     ]);
-    // The hook may have created the worktree even when agent start fails or
-    // answers badly: it is listed on every path, and a failure reconciles.
-    reportWorktree();
     if (started.kind === "failed") return failed(started.reason);
 
     // Spec 2.5, revision 0.9: the postcondition holds also on a blocked

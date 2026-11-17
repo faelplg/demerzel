@@ -1,6 +1,7 @@
 import { BackendError, type CheckOutcome } from "../backend.ts";
 import { entry } from "../registry.ts";
-import { agentState, backendErrorDetail, backendUnavailable, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, transition, view, viewAfterEffect, wrongLifecycle, type Context, type Outcome } from "./common.ts";
+import type { ProjectLock } from "../lock.ts";
+import { agentState, backendErrorDetail, backendUnavailable, done, isLock, isOutcome, isProbe, isSnapshot, lock, notFound, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, taskLock, transition, view, viewAfterEffect, wrongLifecycle, type Context, type Outcome, type Recovery } from "./common.ts";
 
 const C = "resume";
 
@@ -15,13 +16,20 @@ export async function resume(id: string, ctx: Context): Promise<Outcome> {
   const { project, registry } = session;
   const held = await lock(C, ctx, registry);
   if (!isLock(held)) return held;
+  let own: ProjectLock | null = null;
+  let recovery: Recovery | null = null;
   try {
     if (registry.read(id) === null) return notFound(C, id);
+    // Spec 2.3, revision 0.15: the target's task lock, without waiting,
+    // before any check of the matrix; the task is read after it.
+    const mine = taskLock(C, registry, id);
+    if (isOutcome(mine)) return mine;
+    own = mine;
     const probe = await reachBackend(C, ctx.backend);
     if (!isProbe(probe)) return probe;
     const snapshot = await readSnapshot(C, ctx.backend);
     if (!isSnapshot(snapshot)) return snapshot;
-    const recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace);
+    recovery = planRecovery(registry, snapshot, project, ctx.env, ctx.trace, new Set([id]));
     const record = recovery.records.find((r) => r.id === id);
     if (record === undefined) return notFound(C, id);
     if (record.lifecycle !== "launched") return wrongLifecycle(C, record, "launched");
@@ -79,6 +87,8 @@ export async function resume(id: string, ctx: Context): Promise<Outcome> {
     const after = await snapshotAfterEffect(ctx.backend);
     return done(C, record.request_sent === true && after.error === null ? 0 : 1, [viewAfterEffect(record, after, failure)]);
   } finally {
+    recovery?.release();
+    own?.release();
     held.release();
   }
 }
