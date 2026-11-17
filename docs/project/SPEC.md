@@ -361,8 +361,10 @@ aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel 
   O backend só passa um nível de esforço que foi conferido na versão
   instalada do CLI e registrado no Plan; qualquer outro é omitido do
   lançamento, com o motivo gravado em `recorded`, antes do primeiro efeito.
-  Hoje: Claude Code 2.1.286, `low`, `medium`, `high`, `xhigh` e `max`; Codex
-  0.166.0, `minimal`, `low`, `medium`, `high` e `xhigh`. O backend nunca passa
+  The levels were last checked on Claude Code 2.1.286 (`low`, `medium`,
+  `high`, `xhigh` and `max`) and on Codex 0.166.0 (`minimal`, `low`,
+  `medium`, `high` and `xhigh`). The revision 0.16 probe ran on Codex
+  0.169.0 but did not check the levels again. O backend nunca passa
   flags de permissão ou de bypass; o harness lançado usa a configuração do
   próprio usuário, except for the Codex update check above.
 - Startup bloqueado (`agent_not_ready`) deixa a tarefa `launched`, com
