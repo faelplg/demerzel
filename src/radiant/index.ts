@@ -2,5 +2,6 @@
 // depends on it (verification 2).
 export { parseRadiantConfig, type RadiantConfig } from "./config.ts";
 export { prepareDispatch, type DispatchRequest, type Prepared } from "./dispatch.ts";
+export { units, unitsRefusal, type UnitView, type UnitsEnvelope, type UnitsOutcome } from "./units.ts";
 export { route, type Adapter, type Route, type RouteInput } from "./route.ts";
 export { NO_ADAPTER, type Candidate, type Rule, type Rules, type Unit } from "./validators.ts";

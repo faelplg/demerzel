@@ -1,5 +1,6 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { dependencyPending } from "../dependency.ts";
 import type { LaunchPlan } from "../backend.ts";
 import { git, gitOk } from "../git.ts";
 import type { ProjectLock } from "../lock.ts";
@@ -50,17 +51,8 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     const tasks = recovery.records;
     for (const dep of task.dependsOn) {
       const other = tasks.find((t) => t.id === dep);
-      const pending = (why: string) => refuse(C, "dependency-pending", `a dependência ${dep} não terminou: ${why}`, "Espere a dependência ser coletada, fechada e entrar na base.");
-      if (other === undefined) return pending("não há tarefa com esse ID no registro");
-      const events = other.history.map((h) => h.event);
-      const collectedAt = events.indexOf("collected");
-      if (other.lifecycle !== "closed" || collectedAt === -1 || events.lastIndexOf("closed") < collectedAt) {
-        return pending("ela precisa estar fechada depois de coletada");
-      }
-      const tip = git(project.mainCheckout, ["rev-parse", "--verify", "--quiet", `refs/heads/${other.branch}`], ctx.env);
-      if (tip.code !== 0 || !gitOk(project.mainCheckout, ["merge-base", "--is-ancestor", tip.stdout, base.commit], ctx.env)) {
-        return pending(`o branch ${other.branch} não está na base ${base.commit}`);
-      }
+      const why = dependencyPending(other, project.mainCheckout, base.commit, ctx.env);
+      if (why !== null) return refuse(C, "dependency-pending", `Dependency ${dep} has not finished: ${why}`, "Wait for the dependency to be collected, closed and included in the base.");
     }
     for (const other of tasks) {
       if (other.lifecycle === "closed") continue;

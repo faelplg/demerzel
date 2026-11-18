@@ -3,8 +3,8 @@ import { loadConfig } from "../core/config.ts";
 import type { Env } from "../core/env.ts";
 import { HerdrBackend } from "../herdr/backend.ts";
 import { parseHerdrConfig } from "../herdr/config.ts";
-import { prepareDispatch } from "../radiant/index.ts";
-import { parse, USAGE } from "./args.ts";
+import { prepareDispatch, units, unitsRefusal, type UnitsEnvelope } from "../radiant/index.ts";
+import { parse, UNITS_HELP, USAGE } from "./args.ts";
 import { formatText } from "./text.ts";
 
 export type CliOutcome = { code: 0 | 1 | 2; stdout: string; stderr: string };
@@ -13,7 +13,8 @@ function refusalEnvelope(command: string, code: string, message: string, next: s
   return { ok: false, command, tasks: [], refusal: { code, message, next, hold: false } };
 }
 
-function render(code: 0 | 1 | 2, envelope: Envelope, json: boolean): CliOutcome {
+function render(code: 0 | 1 | 2, envelope: Envelope | UnitsEnvelope, json: boolean): CliOutcome {
+  if (envelope.command === "units" && !("units" in envelope)) envelope = unitsRefusal(envelope);
   if (json) return { code, stdout: `${JSON.stringify(envelope)}\n`, stderr: "" };
   return { code, ...formatText(envelope) };
 }
@@ -22,6 +23,7 @@ function render(code: 0 | 1 | 2, envelope: Envelope, json: boolean): CliOutcome 
 // the Radiant integration first, whose refusals run before the core's and
 // without the project lock (Spec 4).
 export async function runCommand(argv: readonly string[], env: Env, cwd: string): Promise<CliOutcome> {
+  if (argv.length === 2 && argv[0] === "units" && argv[1] === "--help") return { code: 0, stdout: `${UNITS_HELP}\n`, stderr: "" };
   const parsed = parse(argv);
   if (!parsed.ok) {
     const envelope = refusalEnvelope(parsed.command, "usage-invalid", parsed.message, `Uso:\n${USAGE}`);
@@ -36,6 +38,9 @@ export async function runCommand(argv: readonly string[], env: Env, cwd: string)
 
   let outcome;
   switch (p.command) {
+    case "units":
+      outcome = await units(p.contract, ctx);
+      break;
     case "dispatch": {
       const prepared = prepareDispatch({ unitId: p.unitId, rule: p.rule, base: p.base, humanApproved: p.humanApproved }, { ...ctx, config: config.config });
       outcome = prepared.ok ? await dispatch({ task: prepared.task, humanApproved: p.humanApproved }, ctx) : prepared.outcome;

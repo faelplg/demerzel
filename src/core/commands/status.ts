@@ -1,4 +1,5 @@
 import { ProjectLock } from "../lock.ts";
+import type { Registry } from "../registry.ts";
 import type { TaskRecord } from "../types.ts";
 import { done, isOutcome, isProbe, isSnapshot, notFound, open, reachBackend, readSnapshot, view, type Context, type Outcome, type TaskView } from "./common.ts";
 
@@ -6,7 +7,7 @@ const C = "status";
 
 export type StatusInput = { ids: string[]; all: boolean };
 
-function attention(task: TaskView): boolean {
+export function attention(task: TaskView): boolean {
   if (task.interrupted || task.lifecycle === "launch-failed") return true;
   if (task.agent === "blocked" || task.agent === "unknown" || task.agent === "lost") return true;
   return task.agent === "idle" && task.report === "absent";
@@ -30,9 +31,17 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
     const all = registry.list();
     records = input.all ? all : all.filter((r) => r.lifecycle !== "closed");
   }
-  const probe = await reachBackend(C, ctx.backend);
+  const observed = await observe(C, records, registry, ctx);
+  if (isOutcome(observed)) return observed;
+  return done(C, observed.tasks.some(attention) ? 1 : 0, observed.tasks);
+}
+
+// Shared read-only observation for views over an explicitly selected set of
+// records. The caller decides whether an empty set needs a backend read.
+export async function observe(command: string, records: TaskRecord[], registry: Registry, ctx: Context): Promise<{ records: TaskRecord[]; tasks: TaskView[] } | Outcome> {
+  const probe = await reachBackend(command, ctx.backend);
   if (!isProbe(probe)) return probe;
-  const first = await readSnapshot(C, ctx.backend);
+  const first = await readSnapshot(command, ctx.backend);
   if (!isSnapshot(first)) return first;
   let snapshot = first;
 
@@ -42,7 +51,7 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
   // task is read again and is interrupted only if it is still half done;
   // when one moved on, the snapshot is taken again so the record and the
   // agent come from the same moment. With the lock held, it shows as it is.
-  ctx.trace?.("status:read");
+  ctx.trace?.(`${command}:read`);
   const halfDone = (r: TaskRecord) => r.lifecycle === "recorded" || r.lifecycle === "launching";
   const interrupted = new Set<string>();
   let moved = false;
@@ -55,10 +64,10 @@ export async function status(input: StatusInput, ctx: Context): Promise<Outcome>
     return reread;
   });
   if (moved) {
-    const again = await readSnapshot(C, ctx.backend);
+    const again = await readSnapshot(command, ctx.backend);
     if (!isSnapshot(again)) return again;
     snapshot = again;
   }
   const tasks = records.map((r) => view(r, snapshot, { interrupted: interrupted.has(r.id) }));
-  return done(C, tasks.some(attention) ? 1 : 0, tasks);
+  return { records, tasks };
 }

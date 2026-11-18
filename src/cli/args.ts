@@ -5,6 +5,7 @@ export type Parsed =
   | { command: "dispatch"; json: boolean; unitId: string; rule: string | null; base: string | null; humanApproved: boolean }
   | { command: "resume" | "collect"; json: boolean; id: string }
   | { command: "status"; json: boolean; ids: string[]; all: boolean }
+  | { command: "units"; json: boolean; contract: string | null }
   | { command: "wait"; json: boolean; ids: string[]; timeoutMs: number | null }
   | { command: "close"; json: boolean; id: string; discardWorktree: boolean };
 
@@ -15,9 +16,24 @@ export const USAGE = [
   "demerzel dispatch <unit-id> [--rule <id>] [--base <ref>] [--human-approved] [--json]",
   "demerzel resume <id> [--json]",
   "demerzel status [<id>...] [--all] [--json]",
+  "demerzel units [--contract <path>] [--json]",
   "demerzel wait <id>... [--timeout <ms>] [--json]",
   "demerzel collect <id> [--json]",
   "demerzel close <id> [--discard-worktree] [--json]",
+].join("\n");
+
+export const UNITS_HELP = [
+  "demerzel units [--contract <path>] [--json]",
+  "",
+  "List every contract unit, its dependencies, writes, default rule and task state.",
+  "Read-only: no project lock, recovery or registry writes.",
+  "",
+  "--contract <path>  Contract path relative to the checkout root, read from HEAD.",
+  "                   Defaults to the committed active_contract pointer's unique link.",
+  "--json             Return the units envelope instead of short text.",
+  "--help             Show this help.",
+  "",
+  "Exit codes: 0 ready; 1 pending, waiting or attention needed; 2 refusal.",
 ].join("\n");
 
 export function parse(argv: readonly string[]): ParseResult {
@@ -37,7 +53,7 @@ export function parse(argv: readonly string[]): ParseResult {
       if (value === undefined || !/^\d+$/.test(value)) return bad("--timeout precisa de um número de milissegundos");
       timeoutMs = Number(value);
       i++;
-    } else if (a === "--rule" || a === "--base") {
+    } else if (a === "--rule" || a === "--base" || a === "--contract") {
       const value = args[i + 1];
       if (value === undefined || value === "" || value.startsWith("--")) return bad(`${a} precisa de um valor`);
       if (values.has(a)) return bad(`${a} aparece mais de uma vez`);
@@ -52,6 +68,12 @@ export function parse(argv: readonly string[]): ParseResult {
     return extra.length === 0 ? null : bad(`opção desconhecida para ${command}: ${extra.join(", ")}`);
   };
   switch (command) {
+    case "units": {
+      const extra = allowed(["--contract"]);
+      if (extra !== null) return extra;
+      if (positional.length !== 0) return bad("units accepts no positional arguments");
+      return { ok: true, parsed: { command, json, contract: values.get("--contract") ?? null } };
+    }
     case "resume":
     case "collect": {
       const extra = allowed([]);

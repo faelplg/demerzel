@@ -123,7 +123,7 @@ describe("pin gate and base (I2, I3)", () => {
     writeFileSync(replacement, other);
     const py = interposePython(sb, "swap-after", "check_project.py", { from: replacement, to: join(sb.repo, ".radiant.json") });
     const r = await refused("pin-mismatch", (be) => attempt(sb, be, {}, { env: py.env }));
-    expect(r.envelope.refusal?.message).toContain("do commit base");
+    expect(r.envelope.refusal?.message).toContain("at base commit");
   });
 
   test("pin-mismatch: no .radiant.json in the caller checkout", async () => {
@@ -154,7 +154,7 @@ describe("pin gate and base (I2, I3)", () => {
       commitAll(sb, `base map ${name}`);
       workingTree(".radiant.json", valid);
       const r = await refused("pin-mismatch", (be) => attempt(sb, be));
-      expect(r.envelope.refusal?.message).toContain("do commit base");
+      expect(r.envelope.refusal?.message).toContain("at base commit");
     });
   }
 
