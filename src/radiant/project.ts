@@ -15,15 +15,16 @@ export function projectPath(value: unknown): string | null {
 // caller's map after that gate, even when a concurrent edit replaces it.
 export function readBaseMap(project: string, commit: string, pin: string, env: Env): { ok: true; map: Record<string, unknown> } | { ok: false; failure: Failure } {
   const shown = git(project, ["show", `${commit}:.radiant.json`], env);
-  const invalid = (): { ok: false; failure: Failure } => ({ ok: false, failure: {
-    code: "pin-mismatch", message: `.radiant.json at base commit ${commit} must be a JSON object with the validated radiant_revision ${pin}`,
-    next: "Use a committed base with the validated Radiant pin.",
+  const invalid = (why: string): { ok: false; failure: Failure } => ({ ok: false, failure: {
+    code: "pin-mismatch", message: `o .radiant.json do commit base ${commit} ${why}`,
+    next: "Despache de uma base que já tem o pin validado.",
   } });
-  if (shown.code !== 0) return invalid();
+  if (shown.code !== 0) return invalid("não existe");
   let value: unknown;
-  try { value = JSON.parse(shown.stdout); } catch { return invalid(); }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return invalid();
+  try { value = JSON.parse(shown.stdout); } catch { return invalid("não é um objeto JSON"); }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return invalid("não é um objeto JSON");
   const map = value as Record<string, unknown>;
-  if (map["radiant_revision"] !== pin) return invalid();
+  if (!("radiant_revision" in map)) return invalid("não tem radiant_revision");
+  if (map["radiant_revision"] !== pin) return invalid(`tem outro radiant_revision (${String(map["radiant_revision"])}), não o pin ${pin} validado`);
   return { ok: true, map };
 }

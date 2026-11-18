@@ -12,6 +12,11 @@ export type RadiantConfigResult =
 
 const KNOWN = new Set(["root", "branch_prefix"]);
 
+// Keep existing config diagnostics together until the CLI translation.
+export function radiantConfigNext(code: "radiant-root-missing" | "config-invalid"): string {
+  return code === "radiant-root-missing" ? "Ponha radiant.root, o checkout Radiant da máquina, na configuração do Demerzel." : "Corrija o bloco radiant da configuração do Demerzel e rode de novo.";
+}
+
 export function parseRadiantConfig(block: Record<string, unknown> | null): RadiantConfigResult {
   const invalid = (message: string): RadiantConfigResult => ({ ok: false, code: "config-invalid", message });
   const unknown = block === null ? [] : Object.keys(block).filter((key) => !KNOWN.has(key));

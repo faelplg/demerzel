@@ -52,7 +52,7 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     for (const dep of task.dependsOn) {
       const other = tasks.find((t) => t.id === dep);
       const why = dependencyPending(other, project.mainCheckout, base.commit, ctx.env);
-      if (why !== null) return refuse(C, "dependency-pending", `Dependency ${dep} has not finished: ${why}`, "Wait for the dependency to be collected, closed and included in the base.");
+      if (why !== null) return refuse(C, "dependency-pending", `a dependência ${dep} não terminou: ${why}`, "Espere a dependência ser coletada, fechada e entrar na base.");
     }
     for (const other of tasks) {
       if (other.lifecycle === "closed") continue;

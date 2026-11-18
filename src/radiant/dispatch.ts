@@ -5,7 +5,7 @@ import type { Env } from "../core/env.ts";
 import { git } from "../core/git.ts";
 import type { Task } from "../core/types.ts";
 import { readCatalog } from "./catalog.ts";
-import { parseRadiantConfig } from "./config.ts";
+import { parseRadiantConfig, radiantConfigNext } from "./config.ts";
 import { projectPath, readBaseMap } from "./project.ts";
 import { route } from "./route.ts";
 import { checkProject, checkRouting, checkUnits, type Failure } from "./validators.ts";
@@ -37,7 +37,7 @@ export function prepareDispatch(request: DispatchRequest, ctx: { cwd: string; en
   // Spec 2.4, the radiant block.
   const radiant = parseRadiantConfig(ctx.config.radiant);
   if (!radiant.ok) {
-    const next = radiant.code === "radiant-root-missing" ? "Ponha radiant.root, o checkout Radiant da máquina, na configuração do Demerzel." : "Corrija o bloco radiant da configuração do Demerzel e rode de novo.";
+    const next = radiantConfigNext(radiant.code);
     return stop({ code: radiant.code, message: radiant.message, next });
   }
   const { root, branchPrefix } = radiant.config;

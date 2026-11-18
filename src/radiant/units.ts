@@ -3,7 +3,7 @@ import { isOutcome, open, refuse, type Context, type Envelope, type Outcome, typ
 import { attention, observe } from "../core/commands/status.ts";
 import { dependencyPending } from "../core/dependency.ts";
 import { git, readCommitFile } from "../core/git.ts";
-import { parseRadiantConfig } from "./config.ts";
+import { parseRadiantConfig, radiantConfigNext } from "./config.ts";
 import { projectPath, readBaseMap } from "./project.ts";
 import { checkProject, checkRouting, checkUnits, type Failure } from "./validators.ts";
 
@@ -54,9 +54,14 @@ function activeTargets(text: string, pointer: string): string[] | null {
   const content = prose.replace(/^ {0,3}\[[^\]]+\]:.*$/gm, "");
   for (const match of content.matchAll(/(?<!!)\[([^\]]+)\](?:\(\s*(?:<([^>]+)>|([^\s()]+))(?:\s+["'][^\n]*?["'])?\s*\)|\[([^\]]*)\])?/g)) {
     const target = match[2] ?? match[3] ?? references.get(key(match[4] || match[1] || ""));
-    if (target === undefined || /^[a-z][a-z\d+.-]*:/i.test(target) || target.startsWith("/") || /[?#\n\r\0\\]/.test(target)) continue;
+    if (target === undefined) continue;
+    const path = target.split(/[?#]/, 1)[0] ?? "";
+    if (!/^TC-\d{4}-.*\.md$/.test(posix.basename(path))) continue;
+    // A contract-shaped link must be usable, even beside another valid
+    // link. Never make an ambiguous pointer unique by dropping this one.
+    if (/^[a-z][a-z\d+.-]*:/i.test(target) || target.startsWith("/") || /[?#\n\r\0\\]/.test(target)) return null;
     const resolved = posix.normalize(posix.join(posix.dirname(pointer), target));
-    if (/^TC-\d{4}-.*\.md$/.test(posix.basename(resolved))) targets.push(resolved);
+    targets.push(resolved);
   }
   return [...new Set(targets)];
 }
@@ -70,7 +75,7 @@ export async function units(contractPath: string | null, ctx: Context): Promise<
   if (isOutcome(session)) return stopped(session);
   const { project, registry, config } = session;
   const radiant = parseRadiantConfig(config.radiant);
-  if (!radiant.ok) return stop({ code: radiant.code, message: radiant.message, next: "Configure an absolute radiant.root at the project's Radiant pin." });
+  if (!radiant.ok) return stop({ code: radiant.code, message: radiant.message, next: radiantConfigNext(radiant.code) });
   const root = radiant.config.root;
   const gate = checkProject(root, project.callerRoot, ctx.env);
   if (!gate.ok) return stop(gate.failure);
