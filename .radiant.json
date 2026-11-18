@@ -1,10 +1,10 @@
 {
-  "radiant_revision": "9612a8cd5396a1d77776faf462dc48c8bd9d734a",
+  "radiant_revision": "93d61c0e1f39025e55cc10049cc82c9854c04434",
   "frame": "docs/project/FRAME.md",
   "spec": "docs/project/SPEC.md",
   "plan": "docs/project/PLAN.md",
   "workflow": null,
-  "engineering_profile": null,
+  "engineering_profile": "docs/project/ENGINEERING-PROFILE.md",
   "contracts": "docs/project/contracts",
   "active_contract": "docs/project/contracts/ACTIVE.md",
   "adrs": null,

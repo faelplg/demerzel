@@ -1,8 +1,8 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.16, 2026-11-17
+Revisão da Spec: 0.17, 2026-11-17
 Frame: [revisão 0.4](FRAME.md)
-Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
+Referência Radiant: 93d61c0e1f39025e55cc10049cc82c9854c04434
 
 Esta Spec define o comportamento observável do primeiro incremento: o núcleo
 de despacho, a integração Radiant e os comandos `dispatch`, `resume`,
@@ -514,6 +514,14 @@ incremento.
    gate. Os arquivos que a integração lê direto do checkout Radiant
    (`agents.json`, `capabilities.json` e `provides.json`) fora do formato
    também são `validator-failed`: o checkout não é o que o pin promete.
+   No pin atual, o gate também lê a seleção opcional de stack pack no
+   `engineering_profile`, fora de blocos cercados de código. Uma seleção
+   conhecida acrescenta `Stack pack: <id>.` à linha `PASS:`, preservando o
+   prefixo usado pela integração. Sem seleção, com `none` ou com Profile
+   nulo, não há sufixo. Seleção desconhecida, repetida ou malformada, ou
+   Profile ilegível, produz `HOLD:` e, na integração, `pin-mismatch`, sem
+   efeitos. O checkout Radiant precisa incluir `engineering/stacks/README.md`.
+   O gate não valida as seções nem os overrides do Profile.
 3. **Base.** `--base <ref>`, ou o branch atual do checkout chamador; em HEAD
    destacado, o commit de HEAD. A base é resolvida para um commit e os dois são
    gravados; uma base que não resolve para um commit é `task-invalid`, como
@@ -557,6 +565,12 @@ incremento.
      nova revisão;
    - cada `dispatch` executa no máximo uma vez o gate, uma vez `units` e uma
      vez `routing`, e para na primeira recusa.
+   O novo `check_contract.py <contrato|-> [--profile <path>]` é uma checagem
+   opt-in de estrutura do contrato, Engineering Check, práticas e critérios
+   de aceite; a seção Owner decisions é exigida desde Template version 0.4.
+   Não é chamado pelo Demerzel nem altera o gate de pin ou o de dispatch.
+   `check_dispatch.py units` continua validando apenas o bloco de unidades,
+   sem exigir essas seções do contrato.
 6. **Roteamento.** Aplica às regras validadas a regra pedida por
    `--rule <id>`, ou `default` sem a flag:
    - descarta candidatos sem suporte no backend ou cujo `provides.json` não
@@ -826,7 +840,9 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    pin: localização do contrato no commit base, recusa de base com pin
    diferente do checkout validado, validação por `check_dispatch.py`,
    roteamento com descarte e com `hold` por capacidade, e gate de pin
-   divergente.
+   divergente. Com Profile selecionando `typescript-bun`, o sufixo do gate
+   preserva o pin e permite o dispatch; uma seleção inválida recusa antes de
+   qualquer efeito.
 7. **Cenário herdr.** Backend contra o herdr real numa sessão nomeada e
    isolada: versão, criação de worktree e workspace nos dois modos, snapshot,
    fechamento e descarte. Prova também que o envio volta em `working` com o
@@ -1053,3 +1069,15 @@ Decided by the owner on 2026-11-17:
 | Question | Decision |
 | --- | --- |
 | Codex update prompt at launch | Demerzel passes `-c check_for_update_on_startup=false` on every Codex launch. Alternative discarded: an owner prerequisite that turns the check off in the user's Codex configuration, which changes every Codex session and depends on each machine being set up |
+
+Revisão 0.17, 2026-11-17, para
+[faelplg/demerzel#51](https://github.com/faelplg/demerzel/issues/51), conforme
+a decisão coordenada M3 aprovada pelo owner em 2026-11-17:
+
+| Questão | Decisão |
+| --- | --- |
+| Referência Radiant atual | Mover de `9612a8cd5396a1d77776faf462dc48c8bd9d734a` para `93d61c0e1f39025e55cc10049cc82c9854c04434`, após faelplg/radiant#73, junto com AIKM e quota-pill. Adota o catálogo de práticas, o mapa de ciclo de vida, os templates de Spec e Engineering Profile, o stack pack e a disponibilidade do validator de contratos de faelplg/radiant#34 |
+| Engineering Profile | Declarar `docs/project/ENGINEERING-PROFILE.md` em `.radiant.json`, com Baseline 0.1 e stack pack `typescript-bun`; registrar a ausência atual de lint e format como override, sem criar um gate novo |
+| Compatibilidade dos validators | `check_dispatch.py`, `dispatch_formats.py` e o leitor YAML não mudaram entre os pins; o trecho `harness without an adapter` permanece válido. O gate de projeto passa a conferir o stack pack, e `check_contract.py` continua opt-in, fora do dispatch |
+| Modelo Codex no pin | `deep` passa de `gpt-6-astra` para `gpt-6.1-sol`; `standard` e `light` não mudam. O roteamento continua lendo os modelos do adapter no pin |
+| Evidência histórica | As decisões anteriores, os contratos executados e os relatórios mantêm as revisões às quais se aplicaram |

@@ -1,8 +1,8 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.10, 2026-11-17
-Spec: [revisão 0.16](SPEC.md)
-Referência Radiant: 6b129752b6687598e9bc3582c1c89c7ee6d71aee
+Revisão do Plan: 0.11, 2026-11-17
+Spec: [revisão 0.17](SPEC.md)
+Referência Radiant: 93d61c0e1f39025e55cc10049cc82c9854c04434
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
 evidência fecha cada um. Ele olha para frente: um incremento terminado vira
@@ -25,6 +25,9 @@ Revision 0.7 adds the Codex update prompt as increment 8.
 Revision 0.8 gives increment 7 its Spec change and its Task Contract.
 Revision 0.9 closes increment 7.
 Revision 0.10 closes increment 8, with no Task Contract by owner decision.
+
+A revisão 0.11 acompanha a Spec 0.17 e o pin coordenado M3 de
+[faelplg/demerzel#51](https://github.com/faelplg/demerzel/issues/51).
 
 ## Feito
 
