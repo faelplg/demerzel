@@ -37,7 +37,7 @@ Comandos, da raiz:
 - `DEMERZEL_SMOKE_REPO=<repositório descartável> bun run smoke:herdr`: o smoke
   com Claude Code e Codex reais, rodado pelo orquestrador com o owner
   presente. Gasta modelo. Fora do `check`.
-- `./src/cli.ts <comando>`: o entrypoint `demerzel` sem instalar; `--version`, `dispatch`, `resume`, `status`, `wait`, `collect` e `close`.
+- `./src/cli.ts <command>`: run `demerzel` without installing it; `--version`, `dispatch`, `resume`, `status`, `units`, `wait`, `collect` and `close`.
 
 Cada teste nomeia o comportamento que protege e a regressão que o faria
 falhar, como pede a Spec, seção 7.

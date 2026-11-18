@@ -1,13 +1,13 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.17, 2026-11-17
+Revisão da Spec: 0.18, 2026-11-18
 Frame: [revisão 0.4](FRAME.md)
 Referência Radiant: 93d61c0e1f39025e55cc10049cc82c9854c04434
 
 Esta Spec define o comportamento observável do primeiro incremento: o núcleo
 de despacho, a integração Radiant e os comandos `dispatch`, `resume`,
-`status`, `wait`, `collect` e `close`. Intenção, hipótese e fronteiras estão
-no Frame. As decisões de origem são o ADR-0002 e o ADR-0003 do Radiant
+`status`, `units`, `wait`, `collect` e `close`. Intenção, hipótese e fronteiras
+estão no Frame. As decisões de origem são o ADR-0002 e o ADR-0003 do Radiant
 (`docs/adrs/` no checkout indicado pelo pin). As decisões que o Frame deixou
 em aberto e as que as fontes não tomavam foram aprovadas pelo owner em
 2026-10-17 e estão registradas na seção 9. A revisão 0.4 aplica as provas do
@@ -600,7 +600,8 @@ Não interativo. Toda saída de máquina sai com `--json`; sem a flag, o mesmo
 conteúdo em texto curto. Códigos: `0` ok, `1` achados ou estado pendente, `2`
 recusa sem efeito.
 
-Envelope `--json`:
+Envelope `--json` dos comandos de tarefas; `units` acrescenta os campos
+descritos na sua subseção:
 
 ```json
 {
@@ -681,6 +682,115 @@ running, possibly in its preparation, and the task shows as it is.
   `absent`.
 - `2`: recusa da matriz acima.
 
+### `demerzel units [--contract <path>] [--json]`
+
+Lista todas as unidades do bloco `radiant-units`, na ordem do contrato,
+inclusive as que ainda não têm tarefa. É uma leitura da integração Radiant;
+o núcleo continua sem conhecer contratos. Usa o registro compartilhado do
+projeto, como `status`, e inclui tarefas `closed` ao procurar correspondências.
+
+**Contrato e base.** Resolve `HEAD` do checkout chamador uma única vez para
+um commit, inclusive em HEAD destacado. Lê desse commit o mapa e o contrato,
+sem incorporar alterações do working tree. Reutiliza o gate de pin e a
+comparação do mapa do commit com o pin validado da seção 3, itens 2 e 3.
+`radiant.root` e os protocolos dos validators são os mesmos do despacho.
+O gate do checkout chamador roda primeiro e suas recusas têm precedência;
+as regras abaixo se aplicam depois que ele passa.
+
+- Com `--contract`, o path é relativo à raiz do checkout chamador, mesmo
+  quando o comando é chamado de um subdiretório. Precisa ser um arquivo
+  regular dentro de `contracts` do mapa desse commit, sem path absoluto,
+  `..`, symlink ou escape do repositório. Normaliza `.` e separadores
+  repetidos para o path relativo usado em `provenance.contract`.
+- Sem a flag, lê do mesmo commit o arquivo indicado por `active_contract`
+  no mapa. O pointer deve conter exatamente um link Markdown local para
+  um arquivo `TC-NNNN-*.md`, resolvido em relação ao diretório do pointer,
+  dentro de `contracts`. Não escolhe por data ou nome. Pointer ausente,
+  nulo, ilegível, declarando `none`, sem link ou com mais de um destino de
+  contrato é `contract-not-found`, com orientação para passar `--contract`.
+  Isso só define o padrão da consulta; não verifica nem exige ativação no
+  `dispatch`, que continua seguindo a seção 3, item 4.
+- Path inválido, contrato ausente ou ilegível no commit também é
+  `contract-not-found`. Base sem commit é `task-invalid`. Chama uma vez
+  `check_dispatch.py units -` com o texto do contrato; bloco inválido é
+  `units-invalid`. Não interpreta YAML por conta própria.
+
+**Regra.** Valida o `routing.json` com `check_dispatch.py routing`, uma vez,
+e mostra `rule: "default"` para cada unidade: é a regra que um novo
+`dispatch <unit-id>` sem `--rule` usaria. As condições `when` são texto
+para julgamento do orquestrador, não critérios de seleção automática.
+A consulta não escolhe candidato, modelo ou esforço, não exige aprovação
+e não promete que o despacho passaria nas suas outras verificações.
+Para tarefa existente, a regra realmente usada fica em `task.provenance.rule`,
+sem ser substituída pela configuração atual.
+
+**Correspondência e estado.** Uma tarefa corresponde quando seu `id` é
+igual ao ID da unidade e seu `provenance.contract` é igual ao path relativo
+normalizado do contrato, no registro deste projeto. Não associa só pelo ID,
+por branch ou por horário, nem filtra pelo commit base da tarefa: uma tarefa
+continua visível quando `HEAD` avança. Sem correspondência, `task` é `null`.
+Mais de uma correspondência é `task-invalid`, com os IDs e o contrato na
+mensagem, sem escolher a mais recente. Isso sinaliza registro inconsistente:
+o despacho atual nunca reutiliza IDs (seção 2.1).
+
+- Com tarefa: `state` é seu `lifecycle`; `task` traz a mesma visão de
+  `status`, incluindo `agent`, `report` e `interrupted`. Um agente `blocked`
+  continua nesse campo, sem virar o `waiting` de uma unidade sem tarefa.
+- Sem tarefa: `state` é `pending` se todas as dependências terminaram, ou
+  `waiting` caso contrário. Lista vazia de dependências resulta em `pending`.
+  Cada dependência é associada pelo mesmo par contrato e ID. Reutiliza a
+  definição de `dependency-pending` da seção 5, usando o commit de `HEAD`
+  resolvido para a consulta como base: tarefa `closed` após `collected` e
+  tip atual do branch ancestral dessa base. Tarefa ausente, branch ausente
+  ou ancestralidade não confirmada mantém a dependência pendente.
+- `waitingOn` lista apenas os IDs das dependências ainda pendentes, na ordem
+  de `dependsOn`, e é vazio para `pending` ou unidade com tarefa. Uma
+  dependência pendente é dado da lista, não recusa `dependency-pending`.
+
+**Somente leitura.** Não pega nem espera o lock do projeto, não cria arquivos
+ou diretórios de registro, não recupera tarefas e não grava estado. Para
+detectar `interrupted`, segue apenas a sondagem imediata e read-only do
+task lock já existente, como `status` na seção 2.3. Não cria sessões nem
+executa preparação, harness ou comandos de efeito. Usa a leitura de estado
+do backend de `status` quando há tarefas correspondentes; sem nenhuma,
+dispensa o backend. Arquivos de tarefa são lidos inteiros por rename, sem
+prometer um snapshot atômico de todas as tarefas durante despachos paralelos.
+
+Envelope `--json` de exemplo, com duas unidades ainda sem tarefa:
+
+```json
+{
+  "ok": true,
+  "command": "units",
+  "tasks": [],
+  "contract": "docs/project/contracts/TC-0025-example.md",
+  "base": { "commit": "0123456789abcdef0123456789abcdef01234567" },
+  "units": [
+    { "id": "TC-0025.1", "dependsOn": [], "writes": ["src/a.ts"], "rule": "default", "state": "pending", "waitingOn": [], "task": null },
+    { "id": "TC-0025.2", "dependsOn": ["TC-0025.1"], "writes": ["src/b.ts"], "rule": "default", "state": "waiting", "waitingOn": ["TC-0025.1"], "task": null }
+  ],
+  "refusal": null
+}
+```
+
+`tasks` contém as visões das tarefas correspondentes, na ordem das unidades;
+`units[].task` contém a mesma visão, ou `null`. `state` aceita `pending`,
+`waiting` e os ciclos de vida da seção 2.3. Na recusa, `tasks` e `units` são
+vazios, `contract` e `base` são `null`, e `refusal` segue o envelope comum.
+Sem `--json`, imprime contrato e commit, depois uma linha por unidade com
+ID, `state`, `dependsOn`, `writes`, `rule` e `waitingOn`; com tarefa, inclui
+também ID, `lifecycle`, `agent`, `report` e `interrupted` quando presente.
+Não imprime o corpo do contrato, do pedido ou do relatório.
+
+- `0`: leitura feita, sem unidades `pending` ou `waiting` e sem tarefas
+  pedindo atenção pelos critérios de `status`.
+- `1`: alguma unidade `pending` ou `waiting`, ou tarefa pedindo atenção;
+  devolve a lista completa com `ok: true`.
+- `2`: recusa, reutilizando os códigos de configuração, projeto, pin,
+  contrato, unidades, roteamento, validator e backend da seção 5, além de
+  `task-invalid` para correspondência ambígua. Argumentos inválidos seguem
+  a recusa de uso do CLI, `usage-invalid`.
+
 ### `demerzel wait <id>... [--timeout <ms>] [--json]`
 
 Volta quando cada tarefa tem retorno `present` ou agente `blocked`, `idle`,
@@ -757,10 +867,10 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 | --- | --- | --- |
 | Configuração inválida | `config-invalid` | Núcleo, e integração para `radiant` |
 | `radiant.root` ausente | `radiant-root-missing` | Integração |
-| Contrato ausente ou ambíguo no commit base | `contract-not-found` | Integração |
+| Contrato ausente ou ambíguo no commit base; em `units`, também path inválido ou pointer ativo sem destino único utilizável (seção 4) | `contract-not-found` | Integração |
 | `routing.json` ausente ou inválido, ou regra inexistente | `routing-invalid` | Integração |
 | Validator fora do próprio protocolo (seção 3, item 2): outra saída, sinal, `python3` ausente ou texto fora do formato | `validator-failed` | Integração |
-| Tarefa ou pedido fora do formato | `task-invalid` | Núcleo |
+| Tarefa ou pedido fora do formato; em `units`, mais de uma tarefa corresponde ao mesmo contrato e unidade | `task-invalid` | Núcleo; integração em `units` |
 | ID já registrado, em qualquer ciclo de vida | `task-exists` | Núcleo |
 | Nome de agente já usado por agente vivo no herdr | `agent-name-taken` | Núcleo |
 | Lock do projeto ocupado por outro processo por mais de 30 s | `project-locked` | Núcleo |
@@ -884,6 +994,33 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
     scenario creates and prepares the worktree for both modes before the
     agent, and the smoke shows a real agent of each harness reading a file
     the preparation wrote.
+
+11. **Visão de unidades (incremento 10 do Plan, faelplg/demerzel#37).**
+    CLI real em consumidor de fixture contra Radiant no pin: texto e JSON
+    mostram todas as unidades na ordem do contrato, `dependsOn`, `writes`,
+    regra `default` e estado, com registro vazio e com tarefas em cada ciclo
+    de vida, inclusive `closed`. Conferir `agent`, `report`, `interrupted`,
+    códigos de saída e envelope de recusa. `--contract` funciona a partir de
+    subdiretório e normaliza o path; sem a flag, usa o link único do pointer
+    ativo no commit. Pointer `none`, ausente, ambíguo ou inválido e contrato
+    fora de `contracts`, symlink ou ilegível recusam sem efeitos. Passado o
+    gate do chamador, alterações não commitadas em `contracts` do mapa, no
+    pointer e no contrato não mudam a consulta; HEAD destacado funciona.
+    Mesmo ID com outro `provenance.contract` não casa;
+    mesma proveniência em commit base anterior casa; correspondência
+    duplicada recusa. Regra histórica da tarefa não muda com `routing.json`,
+    e `when` não seleciona regra. Provar `pending` sem dependências e após
+    dependências concluídas; `waiting` com tarefa de dependência ausente,
+    não coletada, não fechada, branch ausente ou tip fora da base, inclusive
+    com relatório presente; `waitingOn` só contém as pendentes. Gate, units
+    e routing rodam uma vez cada, parando na primeira recusa e preservando
+    seus códigos. Com tarefas, backend indisponível recusa; sem tarefas,
+    a consulta funciona sem herdr. Com project lock ocupado e preparação
+    concorrente, a consulta não espera nem marca a tarefa viva como
+    interrompida; após interrupção, mostra `interrupted` sem recuperar.
+    Comparar registro, arquivos de lock e checkout Radiant antes e depois,
+    inclusive arquivos ignorados, e comprovar ausência de diretórios novos,
+    gravações, preparação e chamadas de efeito no backend.
 
 ## 8. Fora do primeiro incremento
 
@@ -1081,3 +1218,17 @@ a decisão coordenada M3 aprovada pelo owner em 2026-11-17:
 | Compatibilidade dos validators | `check_dispatch.py`, `dispatch_formats.py` e o leitor YAML não mudaram entre os pins; o trecho `harness without an adapter` permanece válido. O gate de projeto passa a conferir o stack pack, e `check_contract.py` continua opt-in, fora do dispatch |
 | Modelo Codex no pin | `deep` passa de `gpt-6-astra` para `gpt-6.1-sol`; `standard` e `light` não mudam. O roteamento continua lendo os modelos do adapter no pin |
 | Evidência histórica | As decisões anteriores, os contratos executados e os relatórios mantêm as revisões às quais se aplicaram |
+
+Revisão 0.18, 2026-11-18, para
+[faelplg/demerzel#37](https://github.com/faelplg/demerzel/issues/37): define
+a consulta read-only `units` da seção 4 e sua verificação na seção 7.
+Incremento pequeno, sem Task Contract, como o incremento 8, por instrução do
+owner. Esta revisão especifica o comportamento; não o implementa.
+
+| Questão | Decisão |
+| --- | --- |
+| Contrato padrão e base da consulta | Link único do pointer `active_contract`, lido com mapa e contrato do commit de `HEAD`; sem destino utilizável, `contract-not-found` e orientação para `--contract` |
+| Associação com o registro | Par `provenance.contract` relativo normalizado e ID da unidade, incluindo tarefas fechadas e bases anteriores; duplicidade recusa com `task-invalid` |
+| Unidades sem tarefa | `pending` ou `waiting`, usando a definição existente de dependência concluída contra o commit consultado |
+| Regra exibida | `default` para um novo despacho sem `--rule`; a regra histórica permanece na proveniência da tarefa, sem interpretar `when` |
+| Efeitos e recusas | Leitura como `status`, sem lock do projeto nem gravações; sem tarefa, dispensa backend; reutiliza códigos existentes |

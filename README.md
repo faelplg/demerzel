@@ -99,6 +99,7 @@ repository's own `.demerzel.json` is the example above.
 demerzel dispatch <unit-id> [--rule <id>] [--base <ref>] [--human-approved]
 demerzel resume <id>
 demerzel status [<id>...] [--all]
+demerzel units [--contract <path>]
 demerzel wait <id>... [--timeout <ms>]
 demerzel collect <id>
 demerzel close <id> [--discard-worktree]
@@ -106,7 +107,8 @@ demerzel --version
 ```
 
 Every command but `--version` takes `--json` and returns an envelope with
-`ok`, `command`, `tasks` and `refusal`.
+`ok`, `command`, `tasks` and `refusal`. `units` also returns `contract`,
+`base` and `units`; `demerzel units --help` describes its options.
 
 A typical run: the orchestrator dispatches the independent units of the
 active contract, waits for them, collects each report, and closes each task
@@ -127,6 +129,17 @@ be committed there.
   has a report or has stopped. `resume`, `collect` and `close` refuse with
   `task-busy` a task whose `dispatch` is still running, for example during
   its preparation.
+- `units` lists the whole contract, including units without tasks, with
+  dependencies, writes, the prospective `default` rule and each task's
+  state. Without `--contract`, it follows the committed `active_contract`
+  pointer's unique Markdown link. Paths are relative to the checkout root;
+  the map, pointer and contract come from `HEAD`, after the caller's pin
+  gate. It matches registry tasks by contract path and unit ID, including
+  closed tasks. An undispatched unit is `pending`, or `waiting` until every
+  dependency is collected, closed and its branch tip is in `HEAD`.
+  It reads without the project lock or registry writes, and needs no herdr
+  when none of the units has a task. It exits `1` for pending or waiting
+  units or tasks needing attention, `0` otherwise, and `2` for a refusal.
 - `collect` returns the report with its sha256 digest, without interpreting
   it.
 - `close` closes the herdr workspace and keeps the branch. Only the human

@@ -5,7 +5,8 @@ import type { Env } from "../core/env.ts";
 import { git } from "../core/git.ts";
 import type { Task } from "../core/types.ts";
 import { readCatalog } from "./catalog.ts";
-import { parseRadiantConfig } from "./config.ts";
+import { parseRadiantConfig, radiantConfigNext } from "./config.ts";
+import { projectPath, readBaseMap } from "./project.ts";
 import { route } from "./route.ts";
 import { checkProject, checkRouting, checkUnits, type Failure } from "./validators.ts";
 
@@ -25,28 +26,6 @@ function stop(failure: Failure): Prepared {
   return { ok: false, outcome: refuse(C, failure.code, failure.message, failure.next, failure.hold ?? false) };
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-}
-
-// A relative path inside the repository, as check_project.py accepts it:
-// not absolute and without `..`. Returns the directory with no trailing
-// slash, "" for the root, or null.
-function contractsDir(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim() === "" || value.startsWith("/") || /[\n\r\0\\]/.test(value)) return null;
-  const parts = value.split("/").filter((part) => part !== "" && part !== ".");
-  if (parts.includes("..")) return null;
-  return parts.join("/");
-}
-
 export function prepareDispatch(request: DispatchRequest, ctx: { cwd: string; env: Env; backend: Backend; config: Config }): Prepared {
   const { env } = ctx;
 
@@ -58,7 +37,7 @@ export function prepareDispatch(request: DispatchRequest, ctx: { cwd: string; en
   // Spec 2.4, the radiant block.
   const radiant = parseRadiantConfig(ctx.config.radiant);
   if (!radiant.ok) {
-    const next = radiant.code === "radiant-root-missing" ? "Ponha radiant.root, o checkout Radiant da máquina, na configuração do Demerzel." : "Corrija o bloco radiant da configuração do Demerzel e rode de novo.";
+    const next = radiantConfigNext(radiant.code);
     return stop({ code: radiant.code, message: radiant.message, next });
   }
   const { root, branchPrefix } = radiant.config;
@@ -85,18 +64,14 @@ export function prepareDispatch(request: DispatchRequest, ctx: { cwd: string; en
   baseRef ??= commit;
 
   // The map of the base commit must carry the pin the gate validated.
-  const shown = git(project, ["show", `${commit}:.radiant.json`], env);
-  const mismatch = (why: string): Prepared => stop({ code: "pin-mismatch", message: `o .radiant.json do commit base ${commit} ${why}`, next: "Despache de uma base que já tem o pin validado." });
-  if (shown.code !== 0) return mismatch("não existe");
-  const baseMap = parseJson(shown.stdout);
-  if (!isObject(baseMap)) return mismatch("não é um objeto JSON");
-  if (!("radiant_revision" in baseMap)) return mismatch("não tem radiant_revision");
-  if (baseMap["radiant_revision"] !== pin) return mismatch(`tem outro radiant_revision (${String(baseMap["radiant_revision"])}), não o pin ${pin} validado`);
+  const mapped = readBaseMap(project, commit, pin, env);
+  if (!mapped.ok) return stop(mapped.failure);
+  const baseMap = mapped.map;
 
   // Spec 3, item 4: exactly one TC-NNNN-*.md in `contracts` of the base map,
   // read from the base commit, never from the working tree.
   const notFound = (why: string): Prepared => stop({ code: "contract-not-found", message: why, next: "Confira o diretório contracts e o contrato no commit base." });
-  const dir = contractsDir(baseMap["contracts"]);
+  const dir = projectPath(baseMap["contracts"]);
   if (dir === null) return notFound(`o .radiant.json do commit base ${commit} não tem contracts como path relativo dentro do repositório`);
   const listed = git(project, ["ls-tree", "-z", "--full-tree", commit, "--", dir === "" ? "." : `${dir}/`], env);
   // The literal glob TC-NNNN-*.md, whose `*` also matches nothing.

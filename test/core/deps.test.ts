@@ -31,6 +31,18 @@ async function next() {
 }
 
 describe("dependencies (Spec 5)", () => {
+  // Protects: dispatch's original dependency refusal text and next step.
+  // Fails if extracting completion logic changes an existing diagnostic.
+  test.each(["absent", "uncollected", "unmerged"])("preserves the dependency-pending diagnostic: %s", async (condition) => {
+    if (condition !== "absent") await dependency({ collect: condition === "unmerged", close: true, merge: false });
+    const base = git(sb.repo, ["rev-parse", "HEAD"], sb.env).stdout;
+    const reason = condition === "absent" ? "não há tarefa com esse ID no registro"
+      : condition === "uncollected" ? "ela precisa estar fechada depois de coletada"
+      : `o branch radiant/${DEP} não está na base ${base}`;
+    expect((await next()).envelope.refusal).toEqual({ code: "dependency-pending", hold: false,
+      message: `a dependência ${DEP} não terminou: ${reason}`, next: "Espere a dependência ser coletada, fechada e entrar na base." });
+  });
+
   // Protects: a dependency finished only when closed after collected and its
   // branch is in the new base. Fails if any of the three conditions is
   // dropped.

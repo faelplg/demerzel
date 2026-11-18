@@ -1,5 +1,5 @@
 import type { Env } from "./env.ts";
-import { git } from "./git.ts";
+import { readCommitFile } from "./git.ts";
 
 // Spec 2.6: the project's own preparation, declared in `.demerzel.json` and
 // read from the base commit, never from the working tree. Absent means the
@@ -11,27 +11,19 @@ export const PROJECT_FILE = ".demerzel.json";
 export type ProjectConfig = { present: boolean; commands: string[][] };
 export type ProjectConfigResult = { ok: true; config: ProjectConfig } | { ok: false; message: string };
 
-const REGULAR = new Set(["100644", "100755"]);
 const KEYS = new Set(["schema", "prepare"]);
 
 // The message names the file, the commit and the rule, never a value read
 // from the file (Spec 2.6 and 6).
 export function readProjectConfig(mainCheckout: string, commit: string, env: Env): ProjectConfigResult {
   const invalid = (rule: string): ProjectConfigResult => ({ ok: false, message: `${PROJECT_FILE} at commit ${commit}: ${rule}` });
-  const tree = git(mainCheckout, ["ls-tree", "-z", "--full-tree", commit, "--", PROJECT_FILE], env);
-  if (tree.code !== 0) return invalid(`could not read the commit's tree (git ls-tree exited with ${tree.code})`);
-  const entries = tree.stdout.split("\0").filter((line) => line !== "");
-  if (entries.length === 0) return { ok: true, config: { present: false, commands: [] } };
-  const match = /^(\d{6}) (\w+) ([0-9a-f]+)\t(.*)$/s.exec(entries[0] ?? "");
-  if (entries.length !== 1 || match === null || match[4] !== PROJECT_FILE) return invalid("the tree entry could not be read");
-  const [, mode, type, oid] = match;
-  if (type !== "blob" || !REGULAR.has(mode ?? "")) return invalid(`the entry is not a regular file (mode ${mode}, type ${type})`);
-  const blob = git(mainCheckout, ["cat-file", "blob", oid ?? ""], env);
-  if (blob.code !== 0) return invalid(`could not read the file's blob (git cat-file exited with ${blob.code})`);
+  const file = readCommitFile(mainCheckout, commit, PROJECT_FILE, env);
+  if (!file.ok) return invalid(file.message);
+  if (file.text === null) return { ok: true, config: { present: false, commands: [] } };
 
   let data: unknown;
   try {
-    data = JSON.parse(blob.stdout);
+    data = JSON.parse(file.text);
   } catch {
     return invalid("the file is not JSON");
   }

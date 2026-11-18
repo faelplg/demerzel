@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.11, 2026-11-17
-Spec: [revisão 0.17](SPEC.md)
+Revisão do Plan: 0.12, 2026-11-18
+Spec: [revisão 0.18](SPEC.md)
 Referência Radiant: 93d61c0e1f39025e55cc10049cc82c9854c04434
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
@@ -29,6 +29,9 @@ Revision 0.10 closes increment 8, with no Task Contract by owner decision.
 A revisão 0.11 acompanha a Spec 0.17 e o pin coordenado M3 de
 [faelplg/demerzel#51](https://github.com/faelplg/demerzel/issues/51).
 
+Revision 0.12 closes increment 10, with no Task Contract by owner instruction,
+and accompanies Spec 0.18.
+
 ## Feito
 
 - Frame 0.3 ([faelplg/demerzel#1](https://github.com/faelplg/demerzel/pull/1))
@@ -42,6 +45,7 @@ A revisão 0.11 acompanha a Spec 0.17 e o pin coordenado M3 de
 - 6, smallest experiment ([faelplg/demerzel#27](https://github.com/faelplg/demerzel/issues/27), [faelplg/aikm#45](https://github.com/faelplg/aikm/pull/45)): TC-0025 in AIKM dispatched its three units through Demerzel, and the orchestrator accepted all three. Units 1 and 2 were the experiment's two independent units, in parallel on Claude Code and Codex; unit 3 depended on both and ran on Claude Code after them. No Frame refutation condition was refuted: owner time and the split amendments came out inconclusive, and the other three held. The Codex update prompt stopped every Codex launch, and Demerzel reported it as `blocked` without sending the request. The Learn Back candidates for Demerzel became [faelplg/demerzel#29](https://github.com/faelplg/demerzel/issues/29) and [faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30), the Codex update prompt became [faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43), and the Learn Back to Radiant is [faelplg/radiant#28](https://github.com/faelplg/radiant/issues/28). The record is in TC-0025, section Demerzel experiment.
 - 7, project preparation ([faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30), [faelplg/demerzel#48](https://github.com/faelplg/demerzel/pull/48), [faelplg/demerzel#49](https://github.com/faelplg/demerzel/pull/49)): TC-0004 in DONE. The core creates and prepares the worktree from the base commit's `.demerzel.json` before the session, without the project lock and under a task lock, for both harnesses. The herdr scenario passed 22/22, and in the smoke each real agent read the file its preparation wrote. One independent verification in Antigravity with Gemini 4 Argon returned DONE with two low findings, both fixed; the owner accepted `src/core/prepare.ts` in the process boundary test.
 - 8, Codex update prompt ([faelplg/demerzel#43](https://github.com/faelplg/demerzel/issues/43), [faelplg/demerzel#50](https://github.com/faelplg/demerzel/pull/50)): Spec 0.16 adds `-c check_for_update_on_startup=false` to every Codex launch. The [probe](verification/2026-11-17-codex-update-prompt-probe.md) showed that the prompt comes back whenever a newer release is known, and that the override skips it for that session only.
+- 10, units view ([faelplg/demerzel#37](https://github.com/faelplg/demerzel/issues/37)): Spec 0.18 defines `demerzel units`, read-only and without the project lock. Real CLI tests against fixture consumers and Radiant at the pin prove contract selection, registry matching, dependency states, routing display, refusals and concurrent observation without state changes. `bun run check` passed 221 core and 280 CLI, herdr and Radiant integration tests, with no failures. Three independent critiques in Antigravity with Gemini 4 Argon: Spec PASS; Build PASS with one medium and two low findings, all fixed; then PASS with no findings.
 
 ## Próximos
 
@@ -60,12 +64,9 @@ a Task Contract is decided when it comes next.
 
 9. Launch units as tabs in the project's herdr workspace
    ([faelplg/demerzel#29](https://github.com/faelplg/demerzel/issues/29)).
-10. List a contract's units with the state of each one
-    ([faelplg/demerzel#37](https://github.com/faelplg/demerzel/issues/37)).
-    Read-only.
 11. Local dashboard that feeds the particle robot from `demerzel status --json`
     ([faelplg/demerzel#33](https://github.com/faelplg/demerzel/issues/33)).
-    Read-only; it draws the list from 10 once 10 exists.
+    Read-only; it draws the units list from increment 10.
 12. Record the orchestrator's and verifier's verdict on a collected task
     ([faelplg/demerzel#36](https://github.com/faelplg/demerzel/issues/36)).
     The judgment stays outside Demerzel.
