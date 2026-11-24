@@ -168,7 +168,14 @@ export class FakeBackend implements Backend {
       if (seen.has(key)) throw new BackendError("fake snapshot", "duplicate task tab label");
       seen.add(key);
     }
-    return structuredClone({ agents: state.agents, workspaces: state.workspaces, tabs: state.tabs });
+    const tabs = state.tabs.map((tab) => {
+      if (tab.pane === null) return tab;
+      const agents = state.agents.filter((a) => a.tab === tab.id);
+      const ours = agents.filter((a) => /^dz-[0-9a-f]{16}$/.test(a.name));
+      if (new Set(ours.map((a) => a.pane)).size > 1) throw new BackendError("fake snapshot", "multiple Demerzel panes in one tab");
+      return { ...tab, pane: (ours[0] ?? agents[0])?.pane ?? tab.pane };
+    });
+    return structuredClone({ agents: state.agents, workspaces: state.workspaces, tabs });
   }
 
   resolveWorkspace(mainCheckout: string, snapshot: Snapshot): WorkspaceLookup {

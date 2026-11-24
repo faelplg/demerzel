@@ -155,7 +155,7 @@ describe("fallback with real adapter and fake herdr (F1-F4, T4, V1-V3, X1)", () 
         }
         if (action !== "close") {
           expect(record().backend_ids.tab).toBe(kind === "outside" || kind.startsWith("foreign") ? null : "w1:t1");
-                    if (kind.startsWith("foreign")) {
+          if (kind.startsWith("foreign")) {
             expect(record().created.some((c) => c.kind === "tab" || c.kind === "pane")).toBe(false);
             if (action === "T4") expect(String(record().history.at(-1)?.detail?.["reason"])).toContain("not owned");
             else expect(record().history.at(-1)?.detail?.["tab_not_owned"]).toEqual({ tab: "w1:t1", agents: (await be.snapshot()).agents.filter((a) => a.tab === "w1:t1").map((a) => a.name).sort() });

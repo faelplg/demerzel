@@ -168,3 +168,14 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
     expect(raw.created.map((c: { kind: string }) => c.kind)).toEqual(["worktree", "tab", "pane", "agent"]);
   });
 });
+
+test("fake snapshot selects per-tab agent pane and refuses split Demerzel agents", async () => {
+  const tab = be.addTab("human");
+  const state = be.snapshotNow();
+  state.agents.push({ name: "human", status: "idle", tab, pane: "human-pane" });
+  expect((await be.snapshot()).tabs.find((t) => t.id === tab)?.pane).toBe("human-pane");
+  state.agents.push({ name: "dz-1111111111111111", status: "idle", tab, pane: "unit-pane" });
+  expect((await be.snapshot()).tabs.find((t) => t.id === tab)?.pane).toBe("unit-pane");
+  state.agents.push({ name: "dz-2222222222222222", status: "idle", tab, pane: "other-unit-pane" });
+  await expect(be.snapshot()).rejects.toThrow("multiple Demerzel panes in one tab");
+});

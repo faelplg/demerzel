@@ -183,7 +183,7 @@ try {
   server?.kill();
   await Bun.sleep(300);
   if (existsSync(sessionDir)) rmSync(sessionDir, { recursive: true, force: true });
-  console.log(JSON.stringify({ session, sessionDir, sessionDirRemoved: !existsSync(sessionDir), state: sb.stateHome, config: configHome, herdr: realHerdr, ownerSessionsTouched: existsSync(join(process.env["HOME"] ?? "", ".config", "herdr", "sessions", session)) }));
+  console.log(JSON.stringify({ session, sessionDir, sessionDirRemoved: !existsSync(sessionDir), state: sb.stateHome, config: configHome, herdr: realHerdr, ownerSessionsTouched: !session.startsWith("dz-test-") || serverEnv["XDG_CONFIG_HOME"] !== configHome }));
   sb.cleanup();
   rmSync(configHome, { recursive: true, force: true });
 }
