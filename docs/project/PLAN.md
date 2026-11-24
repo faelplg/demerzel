@@ -1,7 +1,7 @@
 # Plan: Demerzel
 
-Revisão do Plan: 0.12, 2026-11-18
-Spec: [revisão 0.18](SPEC.md)
+Plan revision: 0.13, 2026-11-24
+Spec: [revision 0.19](SPEC.md)
 Referência Radiant: 93d61c0e1f39025e55cc10049cc82c9854c04434
 
 O comportamento está na Spec; este Plan só ordena os incrementos e diz que
@@ -31,6 +31,8 @@ A revisão 0.11 acompanha a Spec 0.17 e o pin coordenado M3 de
 
 Revision 0.12 closes increment 10, with no Task Contract by owner instruction,
 and accompanies Spec 0.18.
+
+Revision 0.13 gives increment 9 its Spec change and its Task Contract.
 
 ## Feito
 
@@ -63,6 +65,7 @@ egress questions. Each one changes the Spec before its Build; whether it needs
 a Task Contract is decided when it comes next.
 
 9. Launch units as tabs in the project's herdr workspace
+   ([Task Contract TC-0005](contracts/TC-0005-herdr-tabs.md), revision 3)
    ([faelplg/demerzel#29](https://github.com/faelplg/demerzel/issues/29)).
 11. Local dashboard that feeds the particle robot from `demerzel status --json`
     ([faelplg/demerzel#33](https://github.com/faelplg/demerzel/issues/33)).

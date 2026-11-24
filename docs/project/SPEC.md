@@ -1,6 +1,6 @@
 # Spec: Demerzel
 
-Revisão da Spec: 0.18, 2026-11-18
+Spec revision: 0.19, 2026-11-24
 Frame: [revisão 0.4](FRAME.md)
 Referência Radiant: 93d61c0e1f39025e55cc10049cc82c9854c04434
 
@@ -17,6 +17,8 @@ Revision 0.15 adds the project preparation of section 2.6, for
 [faelplg/demerzel#30](https://github.com/faelplg/demerzel/issues/30): Demerzel
 creates every worktree itself, prepares it, and only then starts the agent,
 and a dispatch holds a lock of its own task.
+
+Revision 0.19 launches units as tabs in the project's existing herdr workspace, for faelplg/demerzel#29.
 
 ## 1. Conceitos
 
@@ -168,6 +170,12 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   esforço aplicado ou omitido, base (ref e commit), branch, path do worktree,
   IDs no backend (workspace, aba, pane, nome do agente), `provenance`, ciclo de
   vida, recursos criados e o histórico de transições com horários.
+- Since revision 0.19, `recorded` includes `project_workspace` as
+  `{ id: string; label: string; source: "directory" | "config" }` and
+  `backend_ids.workspace` with that ID, before the first effect. It is never
+  resolved again for that task. Tab and pane IDs are recorded as confirmed.
+  `created` lists worktree, tab, pane and agent, never workspace. Tasks from
+  before 0.19 have no `project_workspace` and are not migrated.
 - A decisão de roteamento é gravada antes do primeiro efeito e nunca é relida
   para decidir de novo.
 - Ordem das gravações no `dispatch`: `recorded` com a decisão; `launching`
@@ -191,13 +199,17 @@ o ID da tarefa, o papel, os pointers e o `returnPath`, e é gravado no registro.
   no histórico. `collect` não recupera e só grava a própria tarefa:
   - `recorded`: `launch-failed` com `created` vazio, porque nenhum efeito
     começou;
-  - `launching`, including an interrupted preparation: confere no Git e no snapshot o branch, o worktree, o
-    workspace pelo ID gravado ou, sem ele, pelo label, com a aba e o pane
-    dele, e o agente pelo nome, e grava em `created` o que existe. Com o agente vivo, a tarefa vai para `launched`, com
-    `request_sent: unknown` se `send_started_at` foi gravado e `false` se não;
-    sem agente, para `launch-failed`. A recuperação não confere a
-    pós-condição de lançamento da seção 2.5: quem confere é o `resume`, logo
-    antes de enviar, para toda tarefa, recuperada ou não;
+  - `launching`, including an interrupted preparation: checks branch and
+    worktree in Git, the tab by recorded ID or the label fallback of section
+    2.5, and the agent by name. It records confirmed tab and pane in
+    `backend_ids` and `created`, never a workspace. A foreign-agent candidate
+    is not adopted; the recovery history detail gains exactly
+    `tab_not_owned: { tab: <candidate ID>, agents: [<sorted names>] }`.
+    With a live agent the task becomes `launched`, with `request_sent:
+    unknown` if `send_started_at` exists, otherwise `false`; without one,
+    `launch-failed`. Recovery does not check the launch postcondition;
+    `resume` always checks it before sending. Legacy tasks without
+    `project_workspace` use recorded IDs and agent name only;
   - nada é relançado nem reenviado sozinho.
 
 Ciclo de vida gravado:
@@ -250,7 +262,10 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
 ```json
 {
   "schema": 1,
-  "herdr": { "session": "lab" },
+  "herdr": {
+    "session": "lab",
+    "workspace_labels": { "/Users/fael/workspaces/github/faelplg/radiant": "radiant-core" }
+  },
   "radiant": {
     "root": "/Users/fael/workspaces/github/faelplg/radiant",
     "branch_prefix": "radiant/"
@@ -264,6 +279,19 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
   `--session <nome>`, inclusive a leitura de versão; ausente, o herdr usa a
   sessão padrão. O herdr 0.9.0 só escolhe a sessão por essa flag, sem
   variável de ambiente.
+- `herdr.workspace_labels` is optional, an object (not null or an array)
+  from main checkout real paths to workspace labels. Keys must be absolute,
+  slash-separated paths, with no empty, `.` or `..` segment, trailing slash
+  or control character (U+0000 through U+001F or U+007F). Keys are compared
+  byte for byte with the main checkout real path, without resolving symlinks
+  in keys; nonexistent paths are accepted. Values are strings of 1 to 128
+  characters without control characters or surrounding whitespace. Invalid
+  entries refuse every command with `config-invalid`, exit 2, before effects.
+  The English message names `herdr.workspace_labels`, the offending key
+  quoted with `JSON.stringify` and the rule, never the value; `next` says
+  "Fix the herdr block of the Demerzel configuration and run again."
+  Unknown herdr keys still refuse. Without a matching entry the label is
+  the main checkout's directory basename, including from linked worktrees.
 - `radiant`: lido só pela integração. `root` é obrigatório para despachar
   unidades, não tem padrão e precisa ser um path absoluto; relativo é
   `config-invalid`. `branch_prefix` é opcional, padrão `radiant/`; só a
@@ -273,28 +301,67 @@ sem a variável. JSON, porque o Bun lê sem dependência e porque é o formato d
 
 ### 2.5 Backend herdr
 
-Versão mínima: 0.9.0, a única conferida (ADR-0002). Versões acima são
-aceitas; o cenário local da seção 7 registra a versão conferida. O Demerzel lê
+Minimum version: 0.9.0 (ADR-0002). Tab operations were checked on 0.9.5;
+on 0.9.0 only `tab create` was observed working. A snapshot without tab
+labels fails safe as `backend-unavailable`. The scenario records its version. O Demerzel lê
 `herdr status --json`, na sessão da configuração, e exige `server.running`, `server.compatible` e
 `server.version` igual ou acima da mínima.
 
 | Operação | herdr 0.9.0 |
 | --- | --- |
-| Criar sessão, Codex | `herdr workspace create --cwd <worktree> --label <label> --no-focus`, in the worktree the core already created and prepared (section 2.6). Devolve `workspace`, `tab` e `root_pane`. Until revision 0.14 it was `herdr worktree create`, which also created the worktree. |
-| Criar sessão, Claude Code | `herdr workspace create --cwd <projeto> --label <label> --no-focus`. Devolve `workspace`, `tab` e `root_pane`. The agent enters the worktree in the next step. |
+| Create session, Codex | `herdr tab create --workspace <project workspace> --cwd <worktree> --label <label> --no-focus`, in the worktree the core created and prepared. Returns `tab` and `root_pane`. |
+| Create session, Claude Code | `herdr tab create --workspace <project workspace> --cwd <project root> --label <label> --no-focus`. The agent enters the prepared worktree through the unchanged hook. |
 | Iniciar agente | `herdr agent start <nome> --kind <kind> --pane <root_pane> -- <args>`. No Codex, `<args>` são modelo e esforço. No Claude Code, vêm antes `--worktree <nome> --settings <hook>`, descritos abaixo. |
 | Conferir o lançamento, Claude Code | `herdr agent get <nome>`, com o `foreground_cwd` do próprio agente; `git -C <projeto> rev-parse --verify refs/heads/<branch>`; e, no worktree, `git -C <worktree> symbolic-ref HEAD` e `git -C <worktree> rev-parse HEAD`. No Codex não há pós-condição e a conferência passa sem chamada. |
 | Enviar pedido | `herdr agent prompt <nome> <texto> --wait --until working --until blocked --timeout <ms>`. Sem `--until`, o `--wait` só volta em `idle`, `done` ou `blocked`, isto é, no fim do turno, e o `dispatch` seguraria o lock do projeto durante todo o trabalho. |
 | Ler estado | `herdr api snapshot` e `herdr agent get <nome>` |
 | Esperar | Ciclo próprio: a cada intervalo curto, lê `herdr api snapshot` e confere o arquivo de retorno, até cada tarefa chegar a um estado de parada ou o timeout expirar. `herdr agent wait` não serve sozinho: não vê o arquivo de retorno e, sem `--until`, só volta em `idle`, `done` ou `blocked`. |
-| Encerrar | `herdr workspace close <workspace>`; com descarte, depois `git -C <projeto> worktree remove <path>`, sem `--force` |
+| Close | `herdr tab close <tab>`; with discard, then `git -C <project> worktree remove <path>`, without `--force`. |
 
-- No herdr 0.9.0, `workspace create` abre um workspace
-  próprio com uma aba e um pane. A "aba própria" da unidade é essa aba.
-- O label do workspace é o ID da tarefa, um espaço e o nome do agente, por
-  exemplo `TC-0025.1 dz-6de747e982262631`. O ID é o que o humano lê na aba;
-  o nome do agente torna o label único entre projetos que compartilham o
-  herdr, para que a recuperação nunca tome a aba de outro projeto.
+- `dispatch` resolves the project workspace with a pure Backend operation
+  over the snapshot already read under the project lock, after
+  `agent-name-taken` and before the task lock, `recorded` and recovery
+  publication. Exact byte and case label matching only. No match refuses
+  `project-workspace-missing`, naming label, source and main checkout, with
+  advice to create it in the configured session or map `herdr.workspace_labels`.
+  Several matches refuse `project-workspace-ambiguous`, naming every ID,
+  with advice to rename or close extras or map a unique label. Both exit 2
+  without task, branch, worktree, preparation, tab, backend effect or recovery
+  publication. Only dispatch resolves; other commands do not. A workspace
+  removed during preparation makes launch fail with existing worktree and
+  branch and the backend error, exit 1. Demerzel creates no workspace.
+- The tab label is exactly `<taskId> <agentName>`. The project workspace
+  retains its project label. Closing its last tab can remove the workspace
+  in herdr 0.9.5; Demerzel records this and neither prevents nor undoes it.
+- Snapshot exposes `workspaces: { id, label }[]`,
+  `tabs: { id, workspace, label, pane }[]` and
+  `agents: { name, status, pane, tab }[]`. A tab chooses its Demerzel
+  agent's pane, otherwise the first named agent's pane, otherwise its first
+  listed pane, or null. Multiple units in different tabs are valid; two
+  Demerzel agents in different panes of one tab refuse the snapshot.
+  Task labels matching `^\S+ dz-[0-9a-f]{16}$` must be unique within each
+  workspace, but can repeat across workspaces. Other labels may repeat.
+  Missing tab label, number, ID or workspace ID and all broken relations
+  refuse as `BackendError`, never as an absent resource. An agent absent
+  from the snapshot or whose pane is not any tab's selected pane is lost.
+  Human tabs and agents do not change a task's state.
+- Label fallback is used only for launch-failure reconciliation, recovery
+  and close when `backend_ids.tab` is null and `project_workspace` exists.
+  It considers only the exact task label in that recorded workspace.
+  Matching tabs elsewhere are ignored, even beside a real candidate.
+  A candidate passes ownership only with no agent or exactly the task's
+  recorded agent; any foreign named agent, alone or beside its own, fails.
+  No cwd, title, number or process heuristic is added: the empty tab left
+  before agent start must remain recoverable. Legacy tasks have no fallback.
+- Tab creation confirmation is all or nothing: nonempty `tab.tab_id`,
+  `root_pane.tab_id`, `root_pane.pane_id`, `tab.workspace_id` and
+  `root_pane.workspace_id`, equal tab IDs and both workspace IDs equal to
+  the recorded workspace. A workspace object is ignored. Any partial or
+  contradictory answer fails launch and records nothing from itself;
+  a fresh reconciliation snapshot can confirm the tab and pane only through
+  the scoped, owned fallback. If unavailable or foreign, IDs stay null;
+  a foreign candidate's failure reason names its tab and agents.
+  Each confirmed resource enters `created` once, tab then pane then agent.
 - O path do worktree é `<registro do projeto>/worktrees/<id>`, decidido antes
   do primeiro efeito para que a recusa de path existente seja verificável.
   Path, branch e base são os mesmos nos dois harnesses. Since revision 0.15
@@ -628,14 +695,15 @@ also refuse with `task-busy` a task whose lock another command holds
 | `status` | qualquer ciclo de vida | nenhuma além das comuns |
 | `wait` | `launched` e `collected` | outro ciclo de vida: `wrong-lifecycle` |
 | `collect` | `launched` e `collected`; não fala com o backend | outro ciclo de vida: `wrong-lifecycle` |
-| `close` | `launched`, `collected` e `launch-failed`; `closed` só com `--discard-worktree` e worktree ainda presente, para repetir o descarte | agente `working`, com ou sem retorno: `task-working`; `closed` sem descarte pendente: `wrong-lifecycle` |
+| `close` | `launched`, `collected` e `launch-failed`; `closed` só com `--discard-worktree` e worktree ainda presente, para repetir o descarte | agente `working`, com ou sem retorno: `task-working`; `closed` sem descarte pendente: `wrong-lifecycle`; foreign-agent label candidate: `tab-not-owned` |
 
 ### `demerzel dispatch <unit-id> [--rule <id>] [--base <ref>] [--human-approved] [--json]`
 
 Todas as verificações da seção 5 rodam antes do primeiro efeito. As da
 integração rodam primeiro, sem o lock, porque só leem objetos Git do commit
 base, o checkout Radiant e arquivos do usuário, e não tocam o registro. As do
-núcleo rodam depois, sob o lock do projeto. Depois, grava e executa na ordem
+núcleo rodam depois, sob o lock do projeto. Workspace lookup of section 2.5
+runs among those core refusals, after `agent-name-taken`. Depois, grava e executa na ordem
 da seção 2.3: `recorded`, `launching`, branch and worktree, the preparation
 of section 2.6 without the project lock, sessão, agente, envio e
 `launched`.
@@ -816,11 +884,32 @@ grava no registro.
 
 ### `demerzel close <id> [--discard-worktree] [--json]`
 
-Fecha o workspace do herdr, se ele ainda está no snapshot, e grava `closed`.
-Nunca apaga o branch. Com `--discard-worktree`, flag reservada ao humano,
-também remove o worktree com `git worktree remove`, sem `--force`, nos dois
-harnesses. Numa tarefa já `closed`, só repete esse descarte e não fala com o
-backend.
+Closes only the unit's tab and records `closed`; never closes a workspace
+or deletes a branch. Finds the recorded tab ID or uses the scoped ownership
+fallback of section 2.5. After `task-working`, before any recovery publication,
+a foreign candidate refuses `tab-not-owned`, exit 2, with no task write,
+`tab-found`, recovery publication or backend effect. Its English message names
+task, candidate tab, workspace, agents and own agent; `next` is "Check that tab
+in herdr. If it is not this unit's, rename or close it yourself, then run close
+again." Renaming it leaves no candidate and closes no tab.
+
+An owned label match is recorded in `backend_ids.tab` before close with
+`tab-found`, detail exactly `{ tab: <ID>, by: "label" }`; pane and `created`
+are unchanged by close. If the tab is present, runs `herdr tab close <tab>`.
+`tab_not_found` counts as success; other failures record `close-failed`, detail
+exactly `{ tab: <ID>, backend_error: <error> }`, keep lifecycle and exit 1.
+Success records `closed`, detail exactly
+`{ tab_closed: <ID or null>, last_tab_in_workspace: <boolean> }`.
+The ID includes a `tab_not_found` answer; null means no call. The boolean is
+true only when that tab was the workspace's only tab in the snapshot; false
+when another tab remains or the tab was absent. Human and neighbor unit tabs
+stay open, including a working neighbor. The next dispatch refuses missing
+if herdr removed the emptied workspace. Legacy tasks close their recorded
+tab only, with no label fallback; extra tabs remain open.
+
+`--discard-worktree`, reserved for the human, retains `git worktree remove`
+without `--force`, exit 1 and preservation when Git refuses, for both harnesses.
+On an already closed task it only repeats discard and makes no backend call.
 
 - `0`: fechado, e o worktree removido quando pedido.
 - `1`: fechado, mas o Git recusou remover o worktree, por exemplo por
@@ -865,6 +954,9 @@ Recusas que esta Spec acrescenta, todas sem efeito:
 
 | Recusa | Código | Quem verifica |
 | --- | --- | --- |
+| No workspace with the project label | `project-workspace-missing` | Core |
+| Several workspaces with the project label | `project-workspace-ambiguous` | Core |
+| Label candidate hosts a foreign agent | `tab-not-owned` | Core |
 | Configuração inválida | `config-invalid` | Núcleo, e integração para `radiant` |
 | `radiant.root` ausente | `radiant-root-missing` | Integração |
 | Contrato ausente ou ambíguo no commit base; em `units`, também path inválido ou pointer ativo sem destino único utilizável (seção 4) | `contract-not-found` | Integração |
@@ -953,13 +1045,21 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
    divergente. Com Profile selecionando `typescript-bun`, o sufixo do gate
    preserva o pin e permite o dispatch; uma seleção inválida recusa antes de
    qualquer efeito.
-7. **Cenário herdr.** Backend contra o herdr real numa sessão nomeada e
-   isolada: versão, criação de worktree e workspace nos dois modos, snapshot,
-   fechamento e descarte. Prova também que o envio volta em `working` com o
-   agente ainda trabalhando e que outro `dispatch` do mesmo projeto não espera
-   esse turno, que `close` sem `--discard-worktree` preserva worktree e
-   branch, que o descarte com alterações sai com `1` e mantém o worktree, e
-   que `close` em `working` é recusado.
+7. **Real herdr scenario.** Isolated `dz-test-*` server, never `lab` or
+   owner configuration; prints `ownerSessionsTouched: false` and version.
+   Missing and ambiguous project workspace refusals have no task, branch,
+   worktree or herdr effect. Creates a project-labeled workspace and launches
+   both harnesses as simultaneously listed labeled tabs, with Codex cwd the
+   worktree and Claude Code cwd the main checkout; shim refuses agent start,
+   leaving exactly worktree, tab and pane in `created`. Snapshot and status
+   succeed. Closing one keeps the workspace, human tab and other unit, with
+   tab close and no workspace close. Removing the duplicate restores dispatch.
+   A workspace override sends the unit to its mapped workspace. Closing the
+   sole remaining tab records `last_tab_in_workspace: true` and prints whether
+   herdr removed the workspace. Retains preparation-before-session proofs in
+   both modes, failed preparation without session, preserved branch/worktree
+   without discard, dirty discard exit 1, repeated discard and server loss
+   between probe and snapshot.
 8. **Smoke com harness real.** Claude Code e Codex lançados pelo herdr,
    pedido entregue, retorno gravado e coletado, registrado na verificação do
    contrato. No Claude Code, o worktree tem o path, o branch e o commit base
@@ -1021,6 +1121,23 @@ Cada teste nomeia o comportamento que protege e a regressão que o faria falhar
     Comparar registro, arquivos de lock e checkout Radiant antes e depois,
     inclusive arquivos ignorados, e comprovar ausência de diretórios novos,
     gravações, preparação e chamadas de efeito no backend.
+
+12. **Tabs in the project workspace (Plan increment 9, faelplg/demerzel#29).**
+    Fake backend and fake herdr prove C1-C3, R1-R6, T1-T5, S1-S5,
+    F1-F4, V1-V3, X1-X6, E1 and B1: strict config with safe English
+    diagnostics; exact workspace lookup before effects and recovery;
+    immutable workspace decision; harness cwd and unchanged argv; atomic
+    tab/pane confirmation including lost reconciliation; per-tab observation,
+    coexistence, independent status/wait/resume/close and human neighbors;
+    snapshot relation and scoped duplicate checks; interrupted launch recovery;
+    tab close details, last-tab and tab-not-found behavior; working refusal
+    and unchanged discard; recorded-ID legacy tasks without fallback.
+    For recovery, close and launch-failure reconciliation prove (a) matching
+    tabs elsewhere are ignored alone or beside a real candidate, (b) another
+    unit's or human named agent, alone or beside the task's own, prevents
+    adoption, with exact recovery detail and no-effect close refusal, and
+    (c) an empty pre-agent-start tab is adopted and closed. Refusals publish
+    no waiting recovery. Core still runs without Python or adapter imports.
 
 ## 8. Fora do primeiro incremento
 
@@ -1232,3 +1349,24 @@ owner. Esta revisão especifica o comportamento; não o implementa.
 | Unidades sem tarefa | `pending` ou `waiting`, usando a definição existente de dependência concluída contra o commit consultado |
 | Regra exibida | `default` para um novo despacho sem `--rule`; a regra histórica permanece na proveniência da tarefa, sem interpretar `when` |
 | Efeitos e recusas | Leitura como `status`, sem lock do projeto nem gravações; sem tarefa, dispensa backend; reutiliza códigos existentes |
+
+### Revision 0.19
+
+| Decision | Chosen behavior | Discarded alternative |
+| --- | --- | --- |
+| Contract before Build | TC-0005 revision 3, approved before Build; Spec and Plan first commit; orchestrator activates ACTIVE.md | Build changes activation or implements without contract |
+| Workspace selection | Exact project label in configured session; missing and ambiguous refuse without effect | Create workspace, choose first, search another session |
+| Unit label | `<taskId> <agentName>` on the tab; workspace keeps project label | Per-unit workspace label |
+| Close | Tab close only, working refusal and discard preserved | Workspace close, including legacy tasks |
+| Harness cwd | Claude Code main checkout with printing hook; Codex prepared worktree | Claude Code at untrusted worktree |
+| Tracking | Per-tab snapshot, recovery and Backend, several units per workspace | One Demerzel agent per workspace |
+| Language | English for all increment artifacts and changed messages | Translate unrelated existing messages before #41 |
+| Revision 2 critique | Atomic confirmation, exact history, safe config-key diagnostics and narrow old-test edits | Partial answer adoption, raw control characters, broad test rewrites |
+| Revision 3 ownership | Scoped fallback and foreign-agent check; empty pre-start tab remains recoverable | Global fallback, foreign-agent adoption, cwd/title/process heuristics |
+| Override placement | User config `herdr.workspace_labels`, keyed by real main checkout path | Versioned `.demerzel.json` layout or one global label string |
+| Refusal codes | `project-workspace-missing`, `project-workspace-ambiguous`, `tab-not-owned`, exit 2, no effect | `backend-unavailable`, `task-lost` or `task-working` for another problem |
+| Lookup timing | Pure Backend operation on existing snapshot after agent-name check, before task lock | Lookup inside launch after preparation |
+| Last tab | Close and record the boolean; herdr may remove empty workspace | Refuse close or create placeholder tab |
+| Legacy tasks | Recorded IDs, no migration and no label fallback | Workspace close or workspace-label recovery |
+| Minimum version | Keep 0.9.0; record 0.9.5 tab checks and fail safe without tab labels | Raise minimum without owner decision |
+| Ownership handling | Recovery declines with detail, launch fails without adoption, close refuses before effects | Block other task dispatches or adopt candidate before refusing |
