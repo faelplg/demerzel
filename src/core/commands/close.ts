@@ -94,8 +94,6 @@ export async function close(input: CloseInput, ctx: Context): Promise<Outcome> {
     recovery.publish();
     if (candidate.byLabel && candidate.tab !== undefined) {
       record.backend_ids.tab = candidate.tab.id;
-      record.backend_ids.pane = stored.backend_ids.pane;
-      record.created = stored.created;
       record.history.push(entry("tab-found", { tab: candidate.tab.id, by: "label" }));
       registry.write(record);
       ctx.trace?.("wrote:tab-found");

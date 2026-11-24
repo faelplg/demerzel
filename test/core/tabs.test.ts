@@ -77,8 +77,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
               ["tab-found", { tab, by: "label" }],
               ["closed", { tab_closed: tab, last_tab_in_workspace: false }],
             ]);
-            expect(record().backend_ids.pane).toBeNull();
-            expect(record().created).toEqual(r.created);
+            expect(record().backend_ids.pane).toBe(pane);
+            expect(record().created).toEqual([...r.created, { kind: "tab", id: tab }, { kind: "pane", id: pane }]);
             expect(state.tabs.some((t) => t.id === "w1:t0")).toBe(true);
           }
         } else {
@@ -178,4 +178,15 @@ test("fake snapshot selects per-tab agent pane and refuses split Demerzel agents
   expect((await be.snapshot()).tabs.find((t) => t.id === tab)?.pane).toBe("unit-pane");
   state.agents.push({ name: "dz-2222222222222222", status: "idle", tab, pane: "other-unit-pane" });
   await expect(be.snapshot()).rejects.toThrow("multiple Demerzel panes in one tab");
+});
+
+test("close of an already failed task leaves pane and created unchanged", async () => {
+  be.script({ failAfter: "worktree" });
+  await dispatch({ task: task(), humanApproved: false }, ctx());
+  const r = record();
+  const tab = be.addTab(tabLabel(r));
+  expect((await close({ id: r.id, discardWorktree: false }, ctx())).code).toBe(0);
+  expect(record().backend_ids.tab).toBe(tab);
+  expect(record().backend_ids.pane).toBeNull();
+  expect(record().created).toEqual(r.created);
 });
