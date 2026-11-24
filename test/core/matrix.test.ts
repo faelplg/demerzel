@@ -82,7 +82,7 @@ describe("reconciliation and the return file (R10, R15)", () => {
     const be = backend(sb, { startup: "blocked" });
     const { ctx, t } = await launched(be);
     be.setAgentStatus(t.agent_name, "idle");
-    be.dropPane(t.backend_ids.workspace ?? "");
+    be.dropPane(t.backend_ids.tab ?? "");
     expect((await status({ ids: [t.id], all: false }, ctx)).envelope.tasks[0]?.agent).toBe("lost");
     const before = sb.tasksSnapshot();
     const effects = be.effectCalls().length;
@@ -219,11 +219,11 @@ describe("command matrix of Spec 4 (R14)", () => {
   });
 
   test("close accepts launch-failed and closes the workspace it created", async () => {
-    const be = backend(sb, { failAfter: "workspace" });
+    const be = backend(sb, { failAfter: "tab" });
     const { ctx, t } = await launched(be);
     const x = await close({ id: t.id, discardWorktree: false }, ctx);
     expect(x.code).toBe(0);
-    expect(be.effectCalls().map((c) => c.op)).toEqual(["launch", "closeWorkspace"]);
+    expect(be.effectCalls().map((c) => c.op)).toEqual(["launch", "closeTab"]);
   });
 
   test("collect works on launched and collected and reports a changed digest", async () => {

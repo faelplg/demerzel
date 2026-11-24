@@ -3,6 +3,7 @@ import { join, sep } from "node:path";
 import { BackendError, type Backend, type Probe, type Snapshot } from "../backend.ts";
 import { loadConfig, type Config } from "../config.ts";
 import type { Env } from "../env.ts";
+import { findTab } from "../tab.ts";
 import { gitOk } from "../git.ts";
 import { ProjectLock } from "../lock.ts";
 import { resolveProject, type Project } from "../project.ts";
@@ -193,7 +194,7 @@ export function isProbe(value: Probe | Outcome): value is Probe {
 export function agentState(record: TaskRecord, snapshot: Snapshot): AgentState {
   const agent = snapshot.agents.find((a) => a.name === record.agent_name);
   if (agent === undefined) return "lost";
-  const panes = new Set(snapshot.workspaces.flatMap((w) => (w.pane === null ? [] : [w.pane])));
+  const panes = new Set(snapshot.tabs.flatMap((w) => (w.pane === null ? [] : [w.pane])));
   if (!panes.has(agent.pane)) return "lost";
   if (agent.status === "done") return "idle";
   return agent.status;
@@ -262,14 +263,6 @@ export function transition(registry: Registry, record: TaskRecord, lifecycle: Ta
   record.history.push(entry(lifecycle, detail));
   registry.write(record);
   trace?.(`wrote:${lifecycle}`);
-}
-
-// Spec 2.5, revision 0.8: the task ID, a space and the agent name. The ID is
-// what the human reads; the agent name makes the label unique across
-// projects that share the backend. A recovery looks a workspace up by it
-// only when its ID was never recorded.
-export function workspaceLabel(record: Pick<TaskRecord, "id" | "agent_name">): string {
-  return `${record.id} ${record.agent_name}`;
 }
 
 // Spec 2.3, revision 0.15: the target's task lock, taken without waiting
@@ -341,20 +334,15 @@ export function planRecovery(registry: Registry, snapshot: Snapshot, project: Pr
     if (gitOk(project.mainCheckout, ["show-ref", "--verify", "--quiet", `refs/heads/${record.branch}`], env) && existsSync(record.worktree)) {
       found.push({ kind: "worktree", path: record.worktree, branch: record.branch });
     }
-    const known = record.backend_ids.workspace;
-    const workspace = known !== null
-      ? snapshot.workspaces.find((w) => w.id === known)
-      : snapshot.workspaces.find((w) => w.label === workspaceLabel(record));
-    if (workspace !== undefined) {
-      record.backend_ids.workspace = workspace.id;
-      found.push({ kind: "workspace", id: workspace.id });
-      if (workspace.tab !== null) {
-        record.backend_ids.tab = workspace.tab;
-        found.push({ kind: "tab", id: workspace.tab });
-      }
-      if (workspace.pane !== null) {
-        record.backend_ids.pane = workspace.pane;
-        found.push({ kind: "pane", id: workspace.pane });
+    const candidate = findTab(record, snapshot);
+    if (candidate.notOwned !== null) reason["tab_not_owned"] = candidate.notOwned;
+    const tab = candidate.tab;
+    if (tab !== undefined) {
+      record.backend_ids.tab = tab.id;
+      found.push({ kind: "tab", id: tab.id });
+      if (tab.pane !== null) {
+        record.backend_ids.pane = tab.pane;
+        found.push({ kind: "pane", id: tab.pane });
       }
     }
     const alive = agentState(record, snapshot) !== "lost";

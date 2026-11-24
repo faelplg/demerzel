@@ -7,7 +7,8 @@
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 type Agent = { name: string; kind: string; status: string; pane: string; workspace: string; tab: string; cwd: string; hookCwd?: string };
-type Workspace = { id: string; label: string; tab: string; pane: string; cwd: string };
+type Workspace = { id: string; label: string };
+type Tab = { id: string; workspace: string; label: string; tab: string; pane: string; cwd: string };
 type Script = {
   running: boolean;
   version: string;
@@ -24,13 +25,13 @@ type Script = {
   statusExit: number;
   // A relation of the snapshot broken on purpose, applied to the first
   // workspace, tab, pane and agent.
-  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number";
+  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number" | "tab-without-label";
   statusAnswer: "ok" | "garbage";
   agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
-  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane" | "other-workspace-id" | "no-workspace-object" | "other-tab-id";
+  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane" | "other-workspace-id" | "no-workspace-object" | "no-tab-workspace" | "other-tab-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
-type State = { next: number; workspaces: Workspace[]; agents: Agent[]; script: Script; snapshotFailed?: boolean };
+type State = { next: number; workspaces: Workspace[]; tabs: Tab[]; agents: Agent[]; script: Script; snapshotFailed?: boolean };
 
 const statePath = process.env["FAKE_HERDR_STATE"] ?? "";
 const logPath = process.env["FAKE_HERDR_LOG"] ?? "";
@@ -61,18 +62,11 @@ if (args[0] === "--session") args = args.slice(2);
 const [group, verb, ...rest] = args;
 const s = state.script;
 
-function createWorkspace(label: string, cwd: string): Workspace {
-  const n = state.next++;
-  const w: Workspace = { id: `w${n}`, label, tab: `w${n}:t1`, pane: `w${n}:p1`, cwd };
-  state.workspaces.push(w);
-  return w;
-}
-function sessionResult(w: Workspace, type: string): Record<string, unknown> {
+function sessionResult(w: Tab): Record<string, unknown> {
   return {
-    type,
-    workspace: { workspace_id: w.id, label: w.label, active_tab_id: w.tab, number: 1, pane_count: 1, tab_count: 1, focused: false, agent_status: "unknown" },
-    tab: { tab_id: w.tab, workspace_id: w.id, label: "1", number: 1, pane_count: 1, focused: false, agent_status: "unknown" },
-    root_pane: { pane_id: w.pane, tab_id: w.tab, workspace_id: w.id, cwd: w.cwd, foreground_cwd: w.cwd, agent_status: "unknown" },
+    type: "tab_created",
+    tab: { tab_id: w.id, workspace_id: w.workspace, label: w.label, number: 1 },
+    root_pane: { pane_id: w.pane, tab_id: w.id, workspace_id: w.workspace, cwd: w.cwd },
   };
 }
 
@@ -94,7 +88,7 @@ if (group === "api" && verb === "snapshot") {
   }
   // The server drops on the first snapshot after a workspace exists, as in
   // the reconciliation right after a creation whose answer was lost.
-  if (s.snapshot === "fail-once-with-workspace" && state.workspaces.length > 0 && state.snapshotFailed !== true) {
+  if (s.snapshot === "fail-once-with-workspace" && state.tabs.some((t) => t.id !== "w1:t0") && state.snapshotFailed !== true) {
     state.snapshotFailed = true;
     save();
     fail("server_not_running", "connection lost", "cli:api:snapshot");
@@ -118,21 +112,22 @@ if (group === "api" && verb === "snapshot") {
         // extra-tab-first lists a second tab, with its own pane, before the
         // first one; extra-pane-first lists a split pane before the root pane
         // of the same tab. Neither order says which pane is the root.
-        tabs: state.workspaces.flatMap((w) => [
-          ...(broken === "extra-tab-first" ? [{ tab_id: `${w.id}:t2`, workspace_id: w.id, number: 2, label: "2" }] : []),
+        tabs: state.tabs.flatMap((w) => [
+          ...(broken === "extra-tab-first" ? [{ tab_id: `${w.id}:extra`, workspace_id: w.workspace, number: 2, label: "2" }] : []),
           // renamed-lower-tab: renamed, plus a tab numbered before the first.
-          ...(broken === "renamed-lower-tab" ? [{ tab_id: `${w.id}:t0`, workspace_id: w.id, number: 0, label: "0" }] : []),
-          { tab_id: w.tab, workspace_id: w.id, number: 1, label: "1" },
+          ...(broken === "renamed-lower-tab" ? [{ tab_id: `${w.id}:lower`, workspace_id: w.workspace, number: 0, label: "0" }] : []),
+          { tab_id: w.id, workspace_id: w.workspace, number: 1, label: w.label },
         ]),
-        panes: state.workspaces.flatMap((w) => [
-          ...(broken === "extra-tab-first" ? [{ pane_id: `${w.id}:p9`, tab_id: `${w.id}:t2`, workspace_id: w.id }] : []),
-          ...(broken === "renamed-lower-tab" ? [{ pane_id: `${w.id}:p0`, tab_id: `${w.id}:t0`, workspace_id: w.id }] : []),
-          ...(broken === "extra-pane-first" || broken === "renamed-split" ? [{ pane_id: `${w.id}:p2`, tab_id: w.tab, workspace_id: w.id }] : []),
-          { pane_id: w.pane, tab_id: w.tab, workspace_id: w.id },
+        panes: state.tabs.flatMap((w) => [
+          ...(broken === "extra-tab-first" ? [{ pane_id: `${w.id}:p9`, tab_id: `${w.id}:extra`, workspace_id: w.workspace }] : []),
+          ...(broken === "renamed-lower-tab" ? [{ pane_id: `${w.id}:p0`, tab_id: `${w.id}:lower`, workspace_id: w.workspace }] : []),
+          ...(broken === "extra-pane-first" || broken === "renamed-split" ? [{ pane_id: w.id === "w1:t1" ? "w1:p2" : `${w.id}:p2`, tab_id: w.tab, workspace_id: w.workspace }] : []),
+          { pane_id: w.pane, tab_id: w.tab, workspace_id: w.workspace },
         ]),
   } as { agents: Record<string, unknown>[]; workspaces: Record<string, unknown>[]; tabs: Record<string, unknown>[]; panes: Record<string, unknown>[] };
   const [a0, w0, t0, p0] = [snapshot.agents[0], snapshot.workspaces[0], snapshot.tabs[0], snapshot.panes[0]];
   const r = s.relation;
+  if (r === "tab-without-label" && t0) delete t0["label"];
   if (r === "pane-without-workspace" && p0) delete p0["workspace_id"];
   if (r === "pane-without-tab" && p0) delete p0["tab_id"];
   if (r === "tab-without-id" && t0) delete t0["tab_id"];
@@ -161,11 +156,15 @@ function answerCreate(result: Record<string, unknown>, id: string): never {
   // A contradictory answer: the workspace ID of the first workspace, while
   // the tab and the root pane are the new one's.
   if (s.createAnswer === "other-workspace-id") {
-    (result["workspace"] as Record<string, unknown>)["workspace_id"] = state.workspaces[0]?.id ?? "w-outro";
+    (result["tab"] as Record<string, unknown>)["workspace_id"] = "w-other";
     ok(result, id);
   }
   if (s.createAnswer === "other-tab-id") {
     (result["tab"] as Record<string, unknown>)["tab_id"] = "w-outro:t1";
+    ok(result, id);
+  }
+  if (s.createAnswer === "no-tab-workspace") {
+    delete (result["tab"] as Record<string, unknown>)["workspace_id"];
     ok(result, id);
   }
   if (s.createAnswer === "no-workspace-object") {
@@ -177,7 +176,7 @@ function answerCreate(result: Record<string, unknown>, id: string): never {
     ok(result, id);
   }
   if (s.createAnswer === "empty-workspace-id") {
-    (result["workspace"] as Record<string, unknown>)["workspace_id"] = "";
+    (result["tab"] as Record<string, unknown>)["workspace_id"] = "";
     ok(result, id);
   }
   if (s.createAnswer === "garbage-after") {
@@ -190,30 +189,36 @@ function answerCreate(result: Record<string, unknown>, id: string): never {
 // Since Spec 0.15 the core creates every worktree; `herdr worktree create`
 // is not served, so a backend that calls it again fails as unknown_command.
 
-if (group === "workspace" && verb === "create") {
-  if (s.createAnswer === "empty-noop") ok({}, "cli:workspace:create");
-  const w = createWorkspace(opt(rest, "--label") ?? "", opt(rest, "--cwd") ?? "");
+if (group === "tab" && verb === "create") {
+  if (s.createAnswer === "empty-noop") ok({}, "cli:tab:create");
+  const workspace = opt(rest, "--workspace") ?? "";
+  if (!state.workspaces.some((w) => w.id === workspace)) fail("workspace_not_found", "workspace not found", "cli:tab:create");
+  const n = state.next++;
+  const id = `w1:t${n}`;
+  const tab: Tab = { id, tab: id, workspace, label: opt(rest, "--label") ?? "", cwd: opt(rest, "--cwd") ?? "", pane: `w1:p${n}` };
+  state.tabs.push(tab);
   save();
-  answerCreate(sessionResult(w, "workspace_created"), "cli:workspace:create");
+  answerCreate(sessionResult(tab), "cli:tab:create");
 }
 
-if (group === "workspace" && verb === "close") {
+if (group === "tab" && verb === "close") {
   const id = rest[0] ?? "";
-  const w = state.workspaces.find((x) => x.id === id);
-  if (w === undefined) fail("workspace_not_found", `workspace ${id} not found`, "cli:workspace:close");
-  if (s.closeFails) fail("close_failed", `workspace ${id} could not be closed`, "cli:workspace:close");
-  if (s.closeAnswer === "empty") ok({}, "cli:workspace:close");
-  state.workspaces = state.workspaces.filter((x) => x.id !== id);
-  state.agents = state.agents.filter((a) => a.workspace !== id);
+  const tab = state.tabs.find((t) => t.id === id);
+  if (tab === undefined) fail("tab_not_found", `tab ${id} not found`, "cli:tab:close");
+  if (s.closeFails) fail("close_failed", `tab ${id} could not be closed`, "cli:tab:close");
+  if (s.closeAnswer === "empty") ok({}, "cli:tab:close");
+  state.tabs = state.tabs.filter((t) => t.id !== id);
+  state.agents = state.agents.filter((a) => a.tab !== id);
+  if (!state.tabs.some((t) => t.workspace === tab.workspace)) state.workspaces = state.workspaces.filter((w) => w.id !== tab.workspace);
   save();
-  ok({ type: "ok" }, "cli:workspace:close");
+  ok({ type: "ok" }, "cli:tab:close");
 }
 
 if (group === "agent" && verb === "start") {
   const name = rest[0] ?? "";
   const kind = opt(rest, "--kind") ?? "";
   const pane = opt(rest, "--pane") ?? "";
-  const w = state.workspaces.find((x) => x.pane === pane);
+  const w = state.tabs.find((x) => x.pane === pane);
   if (w === undefined) fail("pane_not_found", `pane ${pane} not found`, "cli:agent:start");
   if (s.paneBusy > 0) {
     s.paneBusy--;
@@ -253,7 +258,7 @@ if (group === "agent" && verb === "start") {
     process.stdout.write("isto não é JSON\n");
     process.exit(0);
   }
-  state.agents.push({ name, kind, status: outcome === "not_ready" ? "blocked" : "idle", pane, workspace: w.id, tab: w.tab, cwd, ...(hookCwd === undefined ? {} : { hookCwd }) });
+  state.agents.push({ name, kind, status: outcome === "not_ready" ? "blocked" : "idle", pane, workspace: w.workspace, tab: w.id, cwd, ...(hookCwd === undefined ? {} : { hookCwd }) });
   save();
   if (outcome === "started-garbage") {
     process.stdout.write("isto não é JSON\n");

@@ -12,7 +12,7 @@ import { context, sandbox, task, type Sandbox } from "./helpers/sandbox.ts";
 // Spec 2.3, revision 0.9. Before the first effect it is backend-unavailable
 // without effect; after it, the command keeps what it recorded and exits 1.
 
-type Method = "probe" | "snapshot" | "send" | "closeWorkspace" | "launch";
+type Method = "probe" | "snapshot" | "send" | "closeTab" | "launch";
 
 // Throws BackendError on the listed call numbers of each method, counting
 // from 1, and otherwise behaves like the fake backend.
@@ -39,9 +39,9 @@ class Flaky extends FakeBackend {
     this.hit("send");
     return super.send(agentName, text);
   }
-  override async closeWorkspace(workspaceId: string): Promise<void> {
-    this.hit("closeWorkspace");
-    return super.closeWorkspace(workspaceId);
+  override async closeTab(workspaceId: string): Promise<void> {
+    this.hit("closeTab");
+    return super.closeTab(workspaceId);
   }
   override async launch(...args: Parameters<FakeBackend["launch"]>) {
     this.hit("launch");
@@ -160,14 +160,14 @@ describe("backend failure after the first effect", () => {
 
   // Protects: a close whose backend call fails keeps the lifecycle, records
   // the failure and exits 1. Fails if the task is marked closed anyway.
-  test("closeWorkspace throwing", async () => {
-    const be = new Flaky(sb, { closeWorkspace: [1] }, { statusAfterSend: "idle" });
+  test("closeTab throwing", async () => {
+    const be = new Flaky(sb, { closeTab: [1] }, { statusAfterSend: "idle" });
     await dispatch({ task: task(), humanApproved: false }, context(sb, be));
     const x = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
     expect(x.code).toBe(1);
     expect(x.envelope.tasks[0]?.agent).toBe("unknown");
     expect(record().lifecycle).toBe("launched");
     expect(record().history.at(-1)?.event).toBe("close-failed");
-    expect(String(record().history.at(-1)?.detail?.["backend_error"])).toContain("herdr closeWorkspace");
+    expect(String(record().history.at(-1)?.detail?.["backend_error"])).toContain("herdr closeTab");
   });
 });

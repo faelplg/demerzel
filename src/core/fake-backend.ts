@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { BackendError, type Backend, type CheckOutcome, type LaunchCheck, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus } from "./backend.ts";
+import { BackendError, type Backend, type CheckOutcome, type LaunchCheck, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus, type WorkspaceLookup } from "./backend.ts";
+import { resolveWorkspace } from "./workspace.ts";
 import type { Env } from "./env.ts";
 import type { BackendIds, Created } from "./types.ts";
 
@@ -16,7 +17,7 @@ import type { BackendIds, Created } from "./types.ts";
 // opens it at the project root and the agent enters the worktree when it
 // starts (Claude Code), which is the mode with a launch postcondition.
 export type WorktreeMode = "worktree-first" | "worktree-on-start";
-export type EffectPoint = "worktree" | "workspace" | "agent";
+export type EffectPoint = "worktree" | "tab" | "agent";
 
 export type FakeScript = {
   running: boolean;
@@ -54,8 +55,9 @@ export type FakeCall = { op: string; effect: boolean; args: Record<string, unkno
 
 type State = {
   next: number;
-  workspaces: Array<{ id: string; label: string; tab: string | null; pane: string | null }>;
-  agents: Array<{ name: string; status: SnapshotAgentStatus; pane: string }>;
+  workspaces: Snapshot["workspaces"];
+  tabs: Snapshot["tabs"];
+  agents: Snapshot["agents"];
   script: FakeScript;
 };
 
@@ -69,7 +71,7 @@ export class FakeBackend implements Backend {
     this.stateFile = options.stateFile ?? null;
     this.callsFile = this.stateFile === null ? null : `${this.stateFile}.calls.jsonl`;
     const loaded = this.stateFile !== null && existsSync(this.stateFile) ? (JSON.parse(readFileSync(this.stateFile, "utf8")) as State) : null;
-    this.memory = loaded ?? { next: 1, workspaces: [], agents: [], script: { ...defaultScript } };
+    this.memory = loaded ?? { next: 1, workspaces: [{ id: "w1", label: "project" }], tabs: [{ id: "w1:t0", workspace: "w1", label: "1", pane: "w1:p0" }], agents: [], script: { ...defaultScript } };
     if (options.script !== undefined) this.memory.script = { ...this.memory.script, ...options.script };
     if (loaded === null || options.script !== undefined) this.save();
   }
@@ -116,25 +118,28 @@ export class FakeBackend implements Backend {
     this.save();
   }
   addAgent(name: string, status: SnapshotAgentStatus = "idle"): void {
-    this.load().agents.push({ name, status, pane: `external:${name}` });
+    this.load().agents.push({ name, status, pane: `external:${name}`, tab: null });
     this.save();
   }
-  // A workspace the backend created whose ID the core never recorded, as when
-  // the process dies inside the backend call. It goes first in the list, so a
-  // lookup by label meets it before any older workspace with the same label.
   addWorkspace(label: string): string {
     const state = this.load();
-    const n = state.next++;
-    state.workspaces.unshift({ id: `w${n}`, label, tab: `w${n}:t1`, pane: `w${n}:p1` });
+    const id = `external-w${state.next++}`;
+    state.workspaces.push({ id, label });
     this.save();
-    return `w${n}`;
+    return id;
   }
-  // The workspace stays, its pane does not: an agent entry left without a
-  // live pane.
-  dropPane(workspaceId: string): void {
-    const workspace = this.load().workspaces.find((w) => w.id === workspaceId);
-    if (workspace === undefined) throw new Error(`no fake workspace ${workspaceId}`);
-    workspace.pane = null;
+  addTab(label: string, workspace = "w1"): string {
+    const state = this.load();
+    const n = state.next++;
+    const id = `w1:t${n}`;
+    state.tabs.push({ id, workspace, label, pane: `w1:p${n}` });
+    this.save();
+    return id;
+  }
+  dropPane(tabId: string): void {
+    const tab = this.load().tabs.find((t) => t.id === tabId);
+    if (tab === undefined) throw new Error(`no fake tab ${tabId}`);
+    tab.pane = null;
     this.save();
   }
   dropAgent(name: string): void {
@@ -156,7 +161,25 @@ export class FakeBackend implements Backend {
   async snapshot(): Promise<Snapshot> {
     const state = this.load();
     this.log("snapshot", false);
-    return { agents: state.agents.map((a) => ({ ...a })), workspaces: state.workspaces.map((w) => ({ ...w })) };
+    const seen = new Set<string>();
+    for (const tab of state.tabs) {
+      if (!/^\S+ dz-[0-9a-f]{16}$/.test(tab.label)) continue;
+      const key = JSON.stringify([tab.workspace, tab.label]);
+      if (seen.has(key)) throw new BackendError("fake snapshot", "duplicate task tab label");
+      seen.add(key);
+    }
+    const tabs = state.tabs.map((tab) => {
+      if (tab.pane === null) return tab;
+      const agents = state.agents.filter((a) => a.tab === tab.id);
+      const ours = agents.filter((a) => /^dz-[0-9a-f]{16}$/.test(a.name));
+      if (new Set(ours.map((a) => a.pane)).size > 1) throw new BackendError("fake snapshot", "multiple Demerzel panes in one tab");
+      return { ...tab, pane: (ours[0] ?? agents[0])?.pane ?? tab.pane };
+    });
+    return structuredClone({ agents: state.agents, workspaces: state.workspaces, tabs });
+  }
+
+  resolveWorkspace(mainCheckout: string, snapshot: Snapshot): WorkspaceLookup {
+    return resolveWorkspace(mainCheckout, snapshot);
   }
 
   prepare(plan: LaunchPlan): Preparation {
@@ -175,24 +198,18 @@ export class FakeBackend implements Backend {
   async launch(plan: LaunchPlan, preparation: Preparation, onCreated: (resource: Created) => void): Promise<LaunchOutcome> {
     const { script } = this.load();
     this.log("launch", true, { task: plan.taskId, mode: script.modes[plan.harness], preparation });
-    const ids: BackendIds = { workspace: null, tab: null, pane: null };
+    const ids: BackendIds = { workspace: plan.projectWorkspace.id, tab: null, pane: null };
     const failed = (reason: string): LaunchOutcome => ({ kind: "failed", reason, ids });
 
-    const addWorkspace = (): void => {
-      const state = this.load();
-      const n = state.next++;
-      ids.workspace = `w${n}`;
-      ids.tab = `w${n}:t1`;
-      ids.pane = `w${n}:p1`;
-      state.workspaces.push({ id: ids.workspace, label: plan.label, tab: ids.tab, pane: ids.pane });
-      this.save();
-      onCreated({ kind: "workspace", id: ids.workspace });
+    const addTab = (): void => {
+      ids.tab = this.addTab(plan.label, plan.projectWorkspace.id);
+      ids.pane = this.load().tabs.find((t) => t.id === ids.tab)?.pane ?? null;
       onCreated({ kind: "tab", id: ids.tab });
-      onCreated({ kind: "pane", id: ids.pane });
+      if (ids.pane !== null) onCreated({ kind: "pane", id: ids.pane });
     };
     const addAgent = (): void => {
       const state = this.load();
-      state.agents.push({ name: plan.agentName, status: script.startup === "blocked" ? "blocked" : "idle", pane: ids.pane ?? "" });
+      state.agents.push({ name: plan.agentName, status: script.startup === "blocked" ? "blocked" : "idle", pane: ids.pane ?? "", tab: ids.tab });
       this.save();
       onCreated({ kind: "agent", name: plan.agentName });
     };
@@ -200,8 +217,9 @@ export class FakeBackend implements Backend {
     // The worktree already exists: "worktree" injects a failure before the
     // backend's first effect.
     if (script.failAfter === "worktree") return failed("falha injetada depois do worktree");
-    addWorkspace();
-    if (script.failAfter === "workspace") return failed("falha injetada depois do workspace");
+    if (!this.load().workspaces.some((w) => w.id === plan.projectWorkspace.id)) return failed("Recorded project workspace no longer exists");
+    addTab();
+    if (script.failAfter === "tab") return failed("Injected failure after tab creation");
     addAgent();
     if (script.failAfter === "agent") return failed("falha injetada depois do agente");
     if (script.modes[plan.harness] === "worktree-on-start" && script.postcondition === "fail") return failed("pós-condição do lançamento não confere: cwd do agente fora do worktree");
@@ -229,12 +247,13 @@ export class FakeBackend implements Backend {
     return state.script.send;
   }
 
-  async closeWorkspace(workspaceId: string): Promise<void> {
+  async closeTab(tabId: string): Promise<void> {
     const state = this.load();
-    this.log("closeWorkspace", true, { workspace: workspaceId });
-    const pane = `${workspaceId}:p1`;
-    state.workspaces = state.workspaces.filter((w) => w.id !== workspaceId);
-    state.agents = state.agents.filter((a) => a.pane !== pane);
+    this.log("closeTab", true, { tab: tabId });
+    const tab = state.tabs.find((t) => t.id === tabId);
+    state.tabs = state.tabs.filter((t) => t.id !== tabId);
+    state.agents = state.agents.filter((a) => a.tab !== tabId);
+    if (tab !== undefined && !state.tabs.some((t) => t.workspace === tab.workspace)) state.workspaces = state.workspaces.filter((w) => w.id !== tab.workspace);
     this.save();
   }
 }

@@ -13,7 +13,7 @@
 // a temporary folder, and writes a JSON report.
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { dispatch, status, close, type Backend } from "../../src/core/index.ts";
 import type { Env } from "../../src/core/env.ts";
 import { git } from "../../src/core/git.ts";
@@ -178,6 +178,12 @@ try {
   say(`  XDG_CONFIG_HOME=${configHome} herdr --session ${session}`);
   save();
 
+  const projectRoot = resolveProject(repo, env)!.mainCheckout;
+  const setup = Bun.spawnSync([realHerdr, "--session", session, "workspace", "create", "--cwd", projectRoot, "--label", basename(projectRoot), "--no-focus"], { env: serverEnv, stdout: "pipe", stderr: "pipe" });
+  if (setup.exitCode !== 0) throw new Error("Could not create isolated smoke project workspace");
+  const projectWorkspace = JSON.parse(setup.stdout.toString()).result.workspace.workspace_id as string;
+  report["project_workspace"] = projectWorkspace;
+
   // Five short launches per harness, counted by the Plan criterion: an
   // intervention is needed whenever the request did not arrive at dispatch.
   for (const harness of harnesses) {
@@ -203,27 +209,21 @@ try {
 
   // Concurrency: the second dispatch ends while the first agent still works,
   // and close of the first is refused in that same interval.
+  const concurrentIds: string[] = [];
   for (const harness of harnesses) {
-    const a = `SMK-${run}-${harness === "codex" ? "x" : "c"}long1`;
-    const b = `SMK-${run}-${harness === "codex" ? "x" : "c"}long2`;
-    const da = await dispatch({ task: taskFor(harness, a, LONG), humanApproved: false }, ctx);
-    const db = await dispatch({ task: taskFor(harness, b, LONG), humanApproved: false }, ctx);
-    ids.push(a, b);
-    const s = await status({ ids: [a], all: false }, ctx);
-    const refused = await close({ id: a, discardWorktree: false }, ctx);
-    const launchedAt = (id: string) => record(id).history.find((h) => h.event === "launched")?.at ?? null;
-    const entry = {
-      harness,
-      first: { id: a, code: da.code, launched_at: launchedAt(a) },
-      second: { id: b, code: db.code, launched_at: launchedAt(b) },
-      first_agent_after_second: s.envelope.tasks[0]?.agent ?? null,
-      close_first: refused.envelope.refusal?.code ?? `code ${refused.code}`,
-      observed_at: new Date().toISOString(),
-    };
-    (report["concurrency"] as unknown[]).push(entry);
-    say(`concorrência ${harness}: segundo dispatch ${db.code}, primeiro agente ${entry.first_agent_after_second}, close do primeiro ${entry.close_first}`);
-    save();
+    const id = `SMK-${run}-${harness === "codex" ? "x" : "c"}long`;
+    const d = await dispatch({ task: taskFor(harness, id, LONG), humanApproved: false }, ctx);
+    ids.push(id); concurrentIds.push(id);
+    if (d.envelope.refusal) throw new Error(`Concurrent dispatch refused: ${d.envelope.refusal.code}`);
   }
+  const concurrent = await status({ ids: concurrentIds, all: false }, ctx);
+  const concurrentSnapshot = await backend.snapshot();
+  const shared = concurrent.envelope.tasks.every((t) => t.backend_ids.workspace === projectWorkspace && concurrentSnapshot.tabs.some((tab) => tab.id === t.backend_ids.tab && tab.workspace === projectWorkspace));
+  const bothWorking = concurrent.envelope.tasks.length === 2 && concurrent.envelope.tasks.every((t) => t.agent === "working");
+  const protectedClose = await close({ id: concurrentIds[0]!, discardWorktree: false }, ctx);
+  (report["concurrency"] as unknown[]).push({ ids: concurrentIds, shared_workspace: shared, both_working: bothWorking, close_first: protectedClose.envelope.refusal?.code });
+  if (!shared || !bothWorking || protectedClose.envelope.refusal?.code !== "task-working") throw new Error("Both harnesses must coexist as working tabs in the project workspace");
+  save();
 
   // Returns through the CLI. The harnesses may ask to write the file; the
   // owner answers in the tabs.
@@ -257,7 +257,7 @@ try {
     const expected = existsSync(markerPath) ? readFileSync(markerPath, "utf8").trim() : null;
     const c = t.report === "present" ? await cli("collect", t.id) : null;
     const content = (c?.envelope.tasks[0]?.collected?.content ?? null) as string | null;
-    const entry = { id: t.id, harness: r.harness, preparation: r.project_preparation?.outcome ?? null, prepared_before_session: r.history.findIndex((h) => h.event === "prepared") < r.history.findIndex((h) => h.event === "created" && h.detail?.["kind"] === "workspace"), expected, content, read_prepared_file: expected !== null && content?.trim() === expected };
+    const entry = { id: t.id, harness: r.harness, preparation: r.project_preparation?.outcome ?? null, prepared_before_session: r.history.findIndex((h) => h.event === "prepared") < r.history.findIndex((h) => h.event === "created" && h.detail?.["kind"] === "tab"), expected, content, read_prepared_file: expected !== null && content?.trim() === expected };
     (report["prepared"] as unknown[]).push(entry);
     say(`${t.id}: read the prepared file ${entry.read_prepared_file}`);
   }
@@ -292,7 +292,12 @@ try {
   for (const id of ids) {
     const lifecycle = record(id).lifecycle;
     if (lifecycle === "closed") continue;
+    const beforeClose = await backend.snapshot();
+    const ownTab = record(id).backend_ids.tab;
+    const neighbors = beforeClose.tabs.filter((t) => t.id !== ownTab).map((t) => t.id);
     const x = await cli("close", id);
+    const afterClose = await backend.snapshot();
+    if (x.code === 0 && (!afterClose.workspaces.some((w) => w.id === projectWorkspace) || neighbors.some((tab) => !afterClose.tabs.some((t) => t.id === tab)))) throw new Error(`Close of ${id} removed the workspace or a neighbor tab`);
     say(`close ${id}: ${x.code}${x.envelope.refusal ? ` ${x.envelope.refusal.code}` : ""}`);
   }
 } catch (error) {

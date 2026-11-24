@@ -21,10 +21,10 @@ export type FakeHerdrScript = {
   statusExit: number;
   // A relation of the snapshot broken on purpose, applied to the first
   // workspace, tab, pane and agent.
-  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number";
+  relation: "none" | "pane-without-workspace" | "pane-without-tab" | "tab-without-id" | "tab-of-missing-workspace" | "pane-in-other-workspace" | "duplicate-pane" | "duplicate-tab" | "duplicate-workspace" | "duplicate-agent" | "agent-tab-mismatch" | "agent-workspace-mismatch" | "workspace-without-label" | "tab-without-number" | "tab-without-label";
   statusAnswer: "ok" | "garbage";
   agentGet: "ok" | "error" | "empty" | "no-cwd" | "empty-cwd" | "other-agent";
-  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane" | "other-workspace-id" | "no-workspace-object" | "other-tab-id";
+  createAnswer: "ok" | "garbage-after" | "empty-noop" | "empty-workspace-id" | "no-tab" | "no-pane" | "other-workspace-id" | "no-workspace-object" | "no-tab-workspace" | "other-tab-id";
   extraWorkspaces: Array<{ workspace_id: string; label: string }>;
 };
 
@@ -49,10 +49,19 @@ export const defaultScript: FakeHerdrScript = {
   extraWorkspaces: [],
 };
 
+export type FakeHerdrState = {
+  next: number;
+  workspaces: Array<{ id: string; label: string }>;
+  tabs: Array<{ id: string; tab: string; workspace: string; label: string; pane: string; cwd: string }>;
+  agents: Array<{ name: string; kind: string; status: string; cwd: string; pane: string; tab: string; workspace: string }>;
+  script: FakeHerdrScript;
+  snapshotFailed?: boolean;
+};
+
 export type FakeHerdr = {
   env: Env;
   calls: () => string[][];
-  state: () => { workspaces: Array<{ id: string; label: string }>; agents: Array<{ name: string; status: string; cwd: string }>; script: FakeHerdrScript };
+  state: () => FakeHerdrState;
   script: (patch: Partial<FakeHerdrScript>) => void;
   setAgentStatus: (name: string, status: string) => void;
   // Moves an agent's foreground cwd, as when the session leaves its worktree.
@@ -67,7 +76,7 @@ export function installFakeHerdr(root: string, baseEnv: Env, patch: Partial<Fake
   const script = join(import.meta.dir, "fake-herdr.ts");
   writeFileSync(join(bin, "herdr"), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`);
   chmodSync(join(bin, "herdr"), 0o755);
-  writeFileSync(statePath, JSON.stringify({ next: 1, workspaces: [], agents: [], script: { ...defaultScript, ...patch } }));
+  writeFileSync(statePath, JSON.stringify({ next: 1, workspaces: [{ id: "w1", label: "project" }], tabs: [{ id: "w1:t0", tab: "w1:t0", workspace: "w1", label: "1", pane: "w1:p0", cwd: root }], agents: [], script: { ...defaultScript, ...patch } }));
   writeFileSync(logPath, "");
   const env: Env = { ...baseEnv, PATH: `${bin}:${baseEnv["PATH"] ?? ""}`, FAKE_HERDR_STATE: statePath, FAKE_HERDR_LOG: logPath };
   const read = () => JSON.parse(readFileSync(statePath, "utf8"));

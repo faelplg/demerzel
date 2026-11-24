@@ -48,7 +48,7 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
   // Protects: `created` lists exactly what exists after a failure at each
   // point. Since Spec 0.15 the core creates the worktree first for both
   // harnesses. Fails if a resource is recorded late or not at all.
-  const ORDER: Record<string, EffectPoint[]> = { codex: ["worktree", "workspace", "agent"], "claude-code": ["worktree", "workspace", "agent"] };
+  const ORDER: Record<string, EffectPoint[]> = { codex: ["worktree", "tab", "agent"], "claude-code": ["worktree", "tab", "agent"] };
   for (const [harness, order] of Object.entries(ORDER)) {
     for (const [i, point] of order.entries()) {
       test(`${harness}: failure after ${point}`, async () => {
@@ -56,7 +56,7 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
         const d = await dispatch({ task: task({ harness }), humanApproved: false }, context(sb, be));
         expect(d.code).toBe(1);
         expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
-        const kinds = record().created.map((c) => c.kind).filter((k) => k !== "tab" && k !== "pane");
+        const kinds = record().created.map((c) => c.kind).filter((k) => k !== "pane");
         expect(kinds).toEqual(order.slice(0, i + 1));
       });
     }
@@ -70,7 +70,7 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
     expect(d.code).toBe(1);
     expect(record().lifecycle).toBe("launch-failed");
     expect(record().history.at(-1)?.detail?.["reason"]).toContain("pós-condição");
-    expect(record().created.map((c) => c.kind)).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    expect(record().created.map((c) => c.kind)).toEqual(["worktree", "tab", "pane", "agent"]);
   });
 
   // Protects: request_sent for each send outcome (R16). Fails if a stalled
@@ -102,7 +102,6 @@ describe("backend interface in both worktree modes (R11, R12)", () => {
       "wrote:recorded@0",
       "wrote:launching@0",
       "wrote:created:worktree@0",
-      "wrote:created:workspace@1",
       "wrote:created:tab@1",
       "wrote:created:pane@1",
       "wrote:created:agent@1",
@@ -125,7 +124,7 @@ describe("fake backend state across instances (R12)", () => {
     other.setAgentStatus(d.envelope.tasks[0]?.agent_name ?? "", "idle");
     expect((await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be))).code).toBe(0);
     const third = new FakeBackend(sb.env, { stateFile });
-    expect(third.snapshotNow().workspaces).toEqual([]);
+    expect(third.snapshotNow().tabs.map((t) => t.id)).toEqual(["w1:t0"]);
     expect(third.snapshotNow().agents).toEqual([]);
   });
 });

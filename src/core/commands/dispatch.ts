@@ -5,12 +5,13 @@ import type { LaunchPlan } from "../backend.ts";
 import { git, gitOk } from "../git.ts";
 import type { ProjectLock } from "../lock.ts";
 import { checkIdentity, PREPARE_GRACE_MS, PREPARE_LIMIT_MS, PREPARE_SETTLE_MS, runPreparation } from "../prepare.ts";
+import { tabLabel } from "../tab.ts";
 import { agentName } from "../project.ts";
 import { PROJECT_FILE, readProjectConfig } from "../project-config.ts";
 import { entry } from "../registry.ts";
 import { buildRequest, checkBranchName, checkPointers, overlaps, parseTask, resolveBase } from "../task.ts";
 import type { TaskRecord } from "../types.ts";
-import { backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, taskLock, transition, view, viewAfterEffect, workspaceLabel, type Context, type Outcome, type Recovery } from "./common.ts";
+import { backendErrorDetail, done, isLock, isOutcome, isProbe, isSnapshot, lock, open, planRecovery, reachBackend, readSnapshot, refuse, snapshotAfterEffect, taskLock, transition, view, viewAfterEffect, type Context, type Outcome, type Recovery } from "./common.ts";
 
 const C = "dispatch";
 
@@ -81,6 +82,9 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
       return refuse(C, "agent-name-taken", `o agente ${name} já está vivo no backend`, "Feche a sessão desse agente antes de despachar.");
     }
 
+    const lookup = ctx.backend.resolveWorkspace(project.mainCheckout, snapshot);
+    if (!lookup.ok) return refuse(C, lookup.code, lookup.message, lookup.next);
+
     // The ID is new, so its task lock is free; held, it is refused like any
     // busy task, before any effect.
     const mine = taskLock(C, registry, task.id);
@@ -92,9 +96,10 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     recovery.publish();
     recovery.release();
     const plan: LaunchPlan = {
+      projectWorkspace: lookup.workspace,
       taskId: task.id,
       agentName: name,
-      label: workspaceLabel({ id: task.id, agent_name: name }),
+      label: tabLabel({ id: task.id, agent_name: name }),
       harness: task.harness,
       model: task.model,
       effort: task.effort ?? null,
@@ -116,7 +121,8 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
       branch: task.branch,
       worktree,
       agent_name: name,
-      backend_ids: { workspace: null, tab: null, pane: null },
+      project_workspace: lookup.workspace,
+      backend_ids: { workspace: lookup.workspace.id, tab: null, pane: null },
       preparation: preparation.data,
       project_preparation: {
         file: PROJECT_FILE,
@@ -228,7 +234,6 @@ export async function dispatch(input: DispatchInput, ctx: Context): Promise<Outc
     try {
       launch = await ctx.backend.launch(plan, preparation, (resource) => {
         record.created.push(resource);
-        if (resource.kind === "workspace") record.backend_ids.workspace = resource.id;
         if (resource.kind === "tab") record.backend_ids.tab = resource.id;
         if (resource.kind === "pane") record.backend_ids.pane = resource.id;
         record.history.push(entry("created", { ...resource }));

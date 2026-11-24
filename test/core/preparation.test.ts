@@ -223,7 +223,6 @@ describe("worktree created by the core (W1, W5)", () => {
         "wrote:prepare-command:1@0",
         "prepare-ran@0",
         "wrote:prepared@0",
-        "wrote:created:workspace@1",
         "wrote:created:tab@1",
         "wrote:created:pane@1",
         "wrote:created:agent@1",
@@ -333,7 +332,7 @@ describe("running the preparation (P1 to P9)", () => {
     ]);
     for (const r of p?.results ?? []) expect(r.duration_ms).toBeGreaterThanOrEqual(0);
     // Readback: the record says where the effects happened.
-    expect(record().created.map((c) => c.kind)).toEqual(["worktree", "workspace", "tab", "pane", "agent"]);
+    expect(record().created.map((c) => c.kind)).toEqual(["worktree", "tab", "pane", "agent"]);
   });
 
   // Protects: P3, nothing of the preparation reaches Demerzel's own stdout

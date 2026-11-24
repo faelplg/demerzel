@@ -107,7 +107,7 @@ describe("the five commands over the herdr backend (H11, H12)", () => {
     expect(x.code).toBe(1);
     expect(x.stdout).toContain("lifecycle=closed");
     expect(x.stdout).toContain("descarte recusado pelo Git");
-    expect(fake.state().workspaces).toEqual([]);
+    expect(fake.state().tabs.map((t) => t.id)).toEqual(["w1:t0"]);
   });
 
   // Protects: the resume flow of TC-0002: a blocked startup, a resume that
@@ -160,7 +160,7 @@ describe("the five commands over the herdr backend (H11, H12)", () => {
     const x = await cli(["close", "TC-0099.1"]);
     expect(x.code).toBe(1);
     expect(x.stdout).toContain("agent=unknown");
-    expect(x.stdout).toContain("erro do backend: herdr workspace close: close_failed");
+    expect(x.stdout).toContain("erro do backend: herdr tab close: close_failed");
     expect(record().lifecycle).toBe("launched");
   });
 

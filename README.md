@@ -54,7 +54,10 @@ Two user files configure it, both under `$XDG_CONFIG_HOME` (else `~/.config`):
 ```json
 {
   "schema": 1,
-  "herdr": { "session": "lab" },
+  "herdr": {
+    "session": "lab",
+    "workspace_labels": { "/path/to/main-checkout": "custom-project-label" }
+  },
   "radiant": {
     "root": "/absolute/path/to/radiant",
     "branch_prefix": "radiant/"
@@ -63,7 +66,9 @@ Two user files configure it, both under `$XDG_CONFIG_HOME` (else `~/.config`):
 ```
 
 `radiant.root` is required to dispatch. `herdr.session` is optional; without
-it, herdr uses its default session. `branch_prefix` defaults to `radiant/`.
+it, herdr uses its default session. Optional `herdr.workspace_labels` maps
+main checkout real paths to custom workspace labels. `branch_prefix` defaults
+to `radiant/`.
 
 `radiant/routing.json` holds the routing rules, in the format of Radiant's
 [routing](https://github.com/faelplg/radiant/blob/main/docs/routing.md). A rule
@@ -92,6 +97,12 @@ leaves processes running, or passes the 10 minute limit for the whole
 preparation stops the task in `launch-failed`, with the branch and worktree
 kept and no agent started. Without the file, nothing is prepared. This
 repository's own `.demerzel.json` is the example above.
+
+In the configured herdr session, create one workspace labeled with the main
+checkout's directory name before dispatching. Units open as labeled tabs in
+that workspace. To use another label, set `herdr.workspace_labels` in the user
+configuration, mapping the main checkout's real absolute path to the label.
+Missing or ambiguous workspace labels refuse dispatch without effects.
 
 ## Commands
 
@@ -142,7 +153,7 @@ be committed there.
   units or tasks needing attention, `0` otherwise, and `2` for a refusal.
 - `collect` returns the report with its sha256 digest, without interpreting
   it.
-- `close` closes the herdr workspace and keeps the branch. Only the human
+- `close` closes only the unit's herdr tab and keeps the branch. Only the human
   passes `--discard-worktree`, and the worktree is removed without `--force`.
 
 The tasks of each project live in `$XDG_STATE_HOME/demerzel/` (else
@@ -172,8 +183,6 @@ worktree of the project sees the same tasks as its main checkout.
 
 ## Not supported yet
 
-- Each unit opens its own herdr workspace instead of a tab in the project's
-  workspace ([#29](https://github.com/faelplg/demerzel/issues/29)).
 - Codex stops at its update prompt on launch
   ([#43](https://github.com/faelplg/demerzel/issues/43)).
 - Follow-ups to a running session, and backends other than herdr.

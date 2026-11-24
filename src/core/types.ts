@@ -80,6 +80,8 @@ export type ProjectPreparation = {
   reason: string | null;
 };
 
+export type ProjectWorkspace = { id: string; label: string; source: "directory" | "config" };
+
 export type TaskRecord = {
   schema: 1;
   id: string;
@@ -95,6 +97,7 @@ export type TaskRecord = {
   backend_ids: BackendIds;
   preparation: Record<string, unknown>;
   project_preparation?: ProjectPreparation;
+  project_workspace?: ProjectWorkspace;
   provenance: Record<string, string>;
   flags: { human_approved: boolean; discard_worktree: boolean };
   lifecycle: Lifecycle;

@@ -1,4 +1,4 @@
-import type { BackendIds, Created } from "./types.ts";
+import type { BackendIds, Created, ProjectWorkspace } from "./types.ts";
 
 // The Demerzel's own backend surface (Spec 1 and 2.5). The herdr backend
 // implements it in increment 4; the core only sees these shapes.
@@ -30,13 +30,17 @@ export class BackendError extends Error {
 export type SnapshotAgentStatus = "working" | "blocked" | "idle" | "done" | "unknown";
 
 export type Snapshot = {
-  agents: Array<{ name: string; status: SnapshotAgentStatus; pane: string }>;
-  // Each workspace with its root tab and pane, so a recovery can list every
-  // resource that exists even when the IDs were never recorded.
-  workspaces: Array<{ id: string; label: string; tab: string | null; pane: string | null }>;
+  agents: Array<{ name: string; status: SnapshotAgentStatus; pane: string; tab: string | null }>;
+  workspaces: Array<{ id: string; label: string }>;
+  tabs: Array<{ id: string; workspace: string; label: string; pane: string | null }>;
 };
 
+export type WorkspaceLookup =
+  | { ok: true; workspace: ProjectWorkspace }
+  | { ok: false; code: "project-workspace-missing" | "project-workspace-ambiguous"; message: string; next: string };
+
 export type LaunchPlan = {
+  projectWorkspace: ProjectWorkspace;
   taskId: string;
   agentName: string;
   label: string;
@@ -76,6 +80,7 @@ export interface Backend {
   supportsHarness(harness: string): boolean;
   probe(): Promise<Probe>;
   snapshot(): Promise<Snapshot>;
+  resolveWorkspace(mainCheckout: string, snapshot: Snapshot): WorkspaceLookup;
   prepare(plan: LaunchPlan): Preparation;
   // Each resource is reported through onCreated as soon as it exists; the
   // core records it before the backend moves on. Since Spec 0.15 the core
@@ -86,5 +91,5 @@ export interface Backend {
   // and by resume right before it sends.
   verifyLaunch(check: LaunchCheck): Promise<CheckOutcome>;
   send(agentName: string, text: string): Promise<SendOutcome>;
-  closeWorkspace(workspaceId: string): Promise<void>;
+  closeTab(tabId: string): Promise<void>;
 }

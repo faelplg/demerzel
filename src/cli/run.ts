@@ -33,7 +33,7 @@ export async function runCommand(argv: readonly string[], env: Env, cwd: string)
   const config = loadConfig(env);
   if (!config.ok) return render(2, refusalEnvelope(p.command, "config-invalid", config.message, "Corrija a configuração do Demerzel e rode de novo."), p.json);
   const herdr = parseHerdrConfig(config.config.herdr);
-  if (!herdr.ok) return render(2, refusalEnvelope(p.command, "config-invalid", herdr.message, "Corrija o bloco herdr da configuração e rode de novo."), p.json);
+  if (!herdr.ok) return render(2, refusalEnvelope(p.command, "config-invalid", herdr.message, "Fix the herdr block of the Demerzel configuration and run again."), p.json);
   const ctx = { cwd, env, backend: new HerdrBackend(env, herdr.config) };
 
   let outcome;
