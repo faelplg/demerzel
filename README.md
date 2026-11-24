@@ -66,7 +66,9 @@ Two user files configure it, both under `$XDG_CONFIG_HOME` (else `~/.config`):
 ```
 
 `radiant.root` is required to dispatch. `herdr.session` is optional; without
-it, herdr uses its default session. `branch_prefix` defaults to `radiant/`.
+it, herdr uses its default session. Optional `herdr.workspace_labels` maps
+main checkout real paths to custom workspace labels. `branch_prefix` defaults
+to `radiant/`.
 
 `radiant/routing.json` holds the routing rules, in the format of Radiant's
 [routing](https://github.com/faelplg/radiant/blob/main/docs/routing.md). A rule

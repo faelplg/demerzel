@@ -141,10 +141,35 @@ try {
   const ambiguous = await dispatch({ task: task({ id: "AMBIGUOUS", base }), humanApproved: false }, ctx());
   check("ambiguous workspace refuses without effects", ambiguous.code === 2 && ambiguous.envelope.refusal?.code === "project-workspace-ambiguous" && JSON.stringify(sb.tasksSnapshot()) === JSON.stringify(beforeAmbiguous.tasks) && sb.gitState() === beforeAmbiguous.git && effectCalls().length === beforeAmbiguous.effects);
   herdr("tab", "close", duplicate.tab.tab_id);
+  // Protects: Z6 resumes default lookup after removing the duplicate.
+  // Fails if dispatch still refuses or records a decision without opening a tab.
+  const afterDuplicate = await dispatch({ task: task({ id: "AFTER-DUPLICATE", writes: ["after-duplicate/"], base }), humanApproved: false }, ctx());
+  const resumed = record("AFTER-DUPLICATE");
+  const resumedSnapshot = await backend.snapshot();
+  check("default dispatch opens a tab after duplicate removal", afterDuplicate.code === 1
+    && JSON.stringify(resumed.created.map((c) => c.kind)) === JSON.stringify(["worktree", "tab", "pane"])
+    && resumed.backend_ids.tab !== null
+    && resumedSnapshot.tabs.some((t) => t.id === resumed.backend_ids.tab && t.workspace === workspace && t.label === `${resumed.id} ${resumed.agent_name}`), { created: resumed.created, tabs: resumedSnapshot.tabs });
+  const resumedClose = await close({ id: resumed.id, discardWorktree: false }, ctx());
+  check("default retry tab closes before the last-tab proof", resumedClose.code === 0
+    && !(await backend.snapshot()).tabs.some((t) => t.id === resumed.backend_ids.tab));
+
   const mapped = herdr("workspace", "create", "--cwd", sb.repo, "--label", "mapped-project", "--no-focus").json?.result;
   const mappedBackend = new HerdrBackend(env, { session, workspace_labels: { [sb.repo]: "mapped-project" } });
   const mappedLaunch = await dispatch({ task: task({ id: "MAPPED", writes: ["mapped/"], base }), humanApproved: false }, ctx(mappedBackend));
-  check("override selects mapped workspace after duplicate removal", mappedLaunch.code === 1 && record("MAPPED").project_workspace?.id === mapped.workspace.workspace_id && record("MAPPED").project_workspace?.source === "config");
+  // Protects: Z7 observes the created tab rather than trusting recorded routing.
+  // Fails if creation failed, its label is wrong or it used the default workspace.
+  const mappedRecord = record("MAPPED");
+  const mappedSnapshot = await backend.snapshot();
+  const mappedLabel = `${mappedRecord.id} ${mappedRecord.agent_name}`;
+  check("override opens a labeled tab in the mapped workspace", mappedLaunch.code === 1
+    && mappedRecord.project_workspace?.id === mapped.workspace.workspace_id
+    && mappedRecord.project_workspace?.source === "config"
+    && JSON.stringify(mappedRecord.created.map((c) => c.kind)) === JSON.stringify(["worktree", "tab", "pane"])
+    && mappedRecord.backend_ids.tab !== null
+    && mappedSnapshot.tabs.some((t) => t.id === mappedRecord.backend_ids.tab && t.workspace === mapped.workspace.workspace_id && t.label === mappedLabel), { created: mappedRecord.created, tabs: mappedSnapshot.tabs });
+  check("mapped unit has no tab in the directory-named workspace", !mappedSnapshot.tabs.some((t) => t.workspace === workspace && (t.id === mappedRecord.backend_ids.tab || t.label === mappedLabel)));
+
   const x1 = await close({ id: rc.id, discardWorktree: false }, ctx());
   const after = await backend.snapshot();
   check("close removes only own tab", x1.code === 0 && !after.tabs.some((t) => t.id === rc.backend_ids.tab) && after.tabs.some((t) => t.id === humanTab) && after.tabs.some((t) => t.id === rl.backend_ids.tab) && after.workspaces.some((w) => w.id === workspace));
@@ -183,7 +208,7 @@ try {
   server?.kill();
   await Bun.sleep(300);
   if (existsSync(sessionDir)) rmSync(sessionDir, { recursive: true, force: true });
-  console.log(JSON.stringify({ session, sessionDir, sessionDirRemoved: !existsSync(sessionDir), state: sb.stateHome, config: configHome, herdr: realHerdr, ownerSessionsTouched: !session.startsWith("dz-test-") || serverEnv["XDG_CONFIG_HOME"] !== configHome }));
+  console.log(JSON.stringify({ session, sessionDir, sessionDirRemoved: !existsSync(sessionDir), state: sb.stateHome, config: configHome, herdr: realHerdr, ownerSessionsTouched: !session.startsWith("dz-test-") || serverEnv["XDG_CONFIG_HOME"] !== configHome || env["XDG_CONFIG_HOME"] !== configHome }));
   sb.cleanup();
   rmSync(configHome, { recursive: true, force: true });
 }

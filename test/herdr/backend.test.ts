@@ -174,8 +174,8 @@ describe("probe (H2)", () => {
 });
 
 describe("snapshot (H3)", () => {
-  // Protects: only named agents, unknown statuses as unknown, each workspace
-  // with its root tab and pane. Fails if the mapping drops or invents data.
+  // Protects: S1 maps named agents and their tabs, preserving unknown status.
+  // Fails if tab identity, the selected pane or a named agent is lost.
   test("mapping", async () => {
     const be = herdr();
     await launch(be, plan());
@@ -197,10 +197,9 @@ describe("snapshot (H3)", () => {
     await expect(herdr().snapshot()).rejects.toThrow("herdr api snapshot");
   });
 
-  // Protects: finding S3 of the sixth verification, the root tab is the one
-  // with the lowest number, whatever the list order. Fails if the first tab
-  // of the list is taken.
-  test("the root tab is chosen by number", async () => {
+  // Protects: S1 maps each tab to its own pane despite snapshot ordering.
+  // Fails if another tab listed first supplies this task's pane.
+  test("each tab keeps its own pane regardless of tab order", async () => {
     fake.script({ start: { codex: "error", claude: "error" } });
     await launch(herdr(), plan());
     fake.script({ snapshot: "extra-tab-first" });
@@ -208,10 +207,8 @@ describe("snapshot (H3)", () => {
     expect(snap.tabs).toContainEqual({ id: "w1:t1", workspace: "w1", label: "TC-0099.1 dz-0123456789abcdef", pane: "w1:p1" });
   });
 
-  // Protects: finding S1 of the sixth verification, the pane of a workspace
-  // is the pane of the agent named in its label (Spec 2.5) when that agent
-  // is in the workspace, so a split pane listed first never makes the agent
-  // look lost. Fails if the first pane of the list is taken.
+  // Protects: S1 selects the Demerzel agent's pane within its own tab.
+  // Fails if a split pane listed first makes the task's agent look lost.
   test("the agent's pane wins over a split pane listed first", async () => {
     await launch(herdr(), plan());
     fake.script({ snapshot: "extra-pane-first" });
@@ -219,8 +216,8 @@ describe("snapshot (H3)", () => {
     expect(snap.tabs).toContainEqual({ id: "w1:t1", workspace: "w1", label: "TC-0099.1 dz-0123456789abcdef", pane: "w1:p1" });
   });
 
-  // Protects: S1 end to end, close refuses a working agent whose workspace
-  // has a split pane listed first. Fails if close exits 0 and closes it.
+  // Protects: S1/X5 keep a working agent visible despite a split pane order.
+  // Fails if close treats that agent as lost and closes its tab.
   test("close refuses a working agent beside a split pane", async () => {
     const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
     expect(d.code).toBe(0);
@@ -233,10 +230,8 @@ describe("snapshot (H3)", () => {
     expect(fake.state().workspaces).toHaveLength(1);
   });
 
-  // Protects: finding R1 of the seventh verification, a workspace whose
-  // label a human changed still shows the named agent that lives in it, even
-  // beside a split pane listed first. Fails if the first pane of the list is
-  // taken once the label no longer names the agent.
+  // Protects: S1 selects a task's agent pane within its tab after a workspace rename.
+  // Fails if workspace labels or split-pane order change the selected pane.
   test("a renamed workspace keeps its agent's pane", async () => {
     await launch(herdr(), plan());
     fake.script({ snapshot: "renamed-split" });
@@ -258,10 +253,8 @@ describe("snapshot (H3)", () => {
     expect(fake.state().workspaces).toHaveLength(1);
   });
 
-  // Protects: finding E1 of the eighth verification, a renamed workspace
-  // where another owner's agent sits in a lower tab still shows the
-  // Demerzel agent's pane, the only kind of agent the core asks about.
-  // Fails if the first named agent by tab is taken.
+  // Protects: S1/S5 keep each tab's agent visible after a workspace rename.
+  // Fails if a human agent in another tab hides the working Demerzel agent.
   test("a renamed workspace with another agent in a lower tab", async () => {
     const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
     expect(d.code).toBe(0);
@@ -275,11 +268,9 @@ describe("snapshot (H3)", () => {
     expect(fake.state().workspaces).toHaveLength(1);
   });
 
-  // Protects: E1, a workspace with Demerzel agents in two panes cannot be
-  // shown with one pane, so the snapshot is refused rather than hiding one.
-  // Fails if one of them is dropped, or if agents of other owners in the
-  // same workspace make the snapshot fail.
-  test("two Demerzel agents in one workspace", async () => {
+  // Protects: S2 refuses two Demerzel agents in different panes of one tab.
+  // Fails if one is hidden, or a human agent alone makes that tab invalid.
+  test("two Demerzel agents in different panes of one tab", async () => {
     await launch(herdr(), plan());
     fake.script({ snapshot: "extra-pane-first", extraAgents: [{ name: "dz-ffffffffffffffff", agent_status: "idle", pane_id: "w1:p2" }] });
     const error = await herdr().snapshot().catch((e: unknown) => e);
@@ -311,9 +302,8 @@ describe("snapshot (H3)", () => {
     }
   });
 
-  // Protects: J1 end to end, close refuses a working agent when its pane
-  // loses its workspace or a second entry with its name says idle. Fails if
-  // close exits 0 and closes the workspace.
+  // Protects: S4 refuses broken pane relations or contradictory agent entries.
+  // Fails if close accepts the reduced snapshot and closes a working agent's tab.
   for (const relation of ["pane-without-workspace", "duplicate-agent"] as const) {
     test(`close refuses a working agent behind a broken snapshot, ${relation}`, async () => {
       const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
@@ -342,8 +332,8 @@ describe("snapshot (H3)", () => {
     }
   });
 
-  // Protects: V1 end to end, close never ends a working agent because the
-  // snapshot lost its pane. Fails if close exits 0 and closes the workspace.
+  // Protects: S4 never treats a named agent with a missing pane field as lost.
+  // Fails if close accepts that broken snapshot and closes its working tab.
   test("close refuses when the working agent comes without its pane", async () => {
     const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
     expect(d.code).toBe(0);
@@ -672,9 +662,8 @@ describe("send and close (H8, H9)", () => {
     expect(String((error as Error).message)).not.toContain("PEDIDO-SECRETO-91c2");
   });
 
-  // Protects: H9, an empty success is not a close (finding Q2 of the fourth
-  // verification). Fails if the workspace stays open while close reports it
-  // closed.
+  // Protects: X2 requires a confirmed tab close, not an empty success answer.
+  // Fails if close reports success while the task tab remains open.
   test("an empty close answer is not a close", async () => {
     const be = herdr();
     await launch(be, plan());
@@ -729,10 +718,8 @@ describe("the core with the herdr backend (H13)", () => {
 });
 
 describe("lost or broken confirmations (third verification of TC-0002)", () => {
-  // Protects: H5, H6 and H13, when a creation's answer is lost after the
-  // effect, the launch still lists what exists, found by label, agent name
-  // and Git (finding T2). Fails if the registry ends without the workspace
-  // and a later close cannot close it.
+  // Protects: T4/F1 reconcile a lost creation answer to the task's own tab.
+  // Fails if confirmed tab or pane resources are omitted and cannot be closed.
   test("a creation that answers badly after creating", async () => {
     fake.script({ createAnswer: "garbage-after" });
     const codex = await launch(herdr(), plan());
@@ -745,9 +732,9 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     expect(claude.outcome.ids.workspace).toBe("w1");
   });
 
-  // Protects: a close after such a launch closes the real workspace. Fails
-  // if the registry lacks the workspace and close reports 0 with it open.
-  test("close after a lost creation answer closes the workspace", async () => {
+  // Protects: X1 closes the reconciled task tab after a lost creation answer.
+  // Fails if the unit's tab stays open or the neighboring human tab disappears.
+  test("close after a lost creation answer closes only the task tab", async () => {
     fake.script({ createAnswer: "garbage-after" });
     const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
     expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
@@ -756,10 +743,9 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     expect(fake.state().tabs.map((t) => t.id)).toEqual(["w1:t0"]);
   });
 
-  // Protects: finding S2 of the sixth verification, an empty workspace ID
-  // in the creation's confirmation is not a confirmation: the launch takes
-  // the failure path, finds the workspace by label, and a later close
-  // closes it, in both modes. Fails if the empty ID is recorded.
+  // Protects: T4 rejects an empty tab.workspace_id and reconciles within the
+  // recorded workspace. Fails if the partial answer confirms an ID or close
+  // fails to remove the recovered tab while preserving its human neighbor.
   for (const harness of ["codex", "claude-code"]) {
     test(`an empty workspace ID in the creation answer, ${harness}`, async () => {
       fake.script({ createAnswer: "empty-workspace-id" });
@@ -773,9 +759,8 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     });
   }
 
-  // Protects: finding K1 of the tenth verification, a snapshot without the
-  // label that the Emenda 1 lookup needs is refused, so close never records
-  // `closed` with the workspace open. Fails if a missing label reads as "".
+  // Protects: S4 refuses a snapshot with a missing workspace label before close.
+  // Fails if a malformed snapshot is accepted and recovery or close writes state.
   test("close after a lost creation answer and a snapshot without labels", async () => {
     fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
     const d = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
@@ -802,9 +787,8 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
       expect(d.envelope.tasks[0]?.created.map((c) => c.kind)).toEqual(["worktree", "tab", "pane"]);
     });
 
-    // Protects: K2, the resources a partial answer confirmed stay listed
-    // even when the reconciliation snapshot fails too. Fails if a missing
-    // root pane drops the workspace and the tab the answer gave.
+    // Protects: T4 confirms no tab or pane from a partial creation answer.
+    // Fails if a lost reconciliation leaves either unconfirmed ID recorded.
     test(`a creation answer without the root pane and a lost reconciliation, ${harness}`, async () => {
       fake.script({ createAnswer: "no-pane", snapshot: "fail-once-with-workspace" });
       const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
@@ -816,11 +800,9 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     });
   }
 
-  // Protects: finding L1 of the eleventh verification, a creation answer
-  // whose workspace ID contradicts its tab and root pane is not recorded;
-  // the launch fails and the reconciliation finds the task's own workspace
-  // by label, so close never reaches another task's workspace. Fails if
-  // the contradictory ID is recorded, in either mode.
+  // Protects: T4 rejects contradictory workspace IDs; F1 reconciles the tab
+  // only inside the recorded project workspace. Fails if a wrong ID is
+  // adopted or closing the failed task affects its working neighbor.
   for (const harness of ["codex", "claude-code"]) {
     test(`a creation answer that names another workspace, ${harness}`, async () => {
       const first = await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
@@ -847,10 +829,9 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
       expect(String(d.envelope.tasks[0]?.created.map((c) => JSON.stringify(c)))).not.toContain("w-outro");
     });
 
-    // Protects: finding L2 of the eleventh verification, an answer without
-    // the workspace object still lists the tab and the root pane, and the
-    // workspace their relation names, even when the reconciliation fails.
-    // Fails if the tab and the pane are dropped with the workspace object.
+    // Protects: T4 requires tab.workspace_id even when the pane names it.
+    // Fails if either ID is adopted from that partial answer after a lost
+    // reconciliation; only the pre-existing workspace decision may remain.
     test(`a creation answer without tab.workspace_id and a lost reconciliation, ${harness}`, async () => {
       fake.script({ createAnswer: "no-tab-workspace", snapshot: "fail-once-with-workspace" });
       const d = await dispatch({ task: task({ harness }), humanApproved: false }, ctx(herdr(null)));
@@ -860,10 +841,8 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     });
   }
 
-  // Protects: finding M1 of the twelfth verification, two workspaces with
-  // one Demerzel task label make the label lookup ambiguous, so the
-  // snapshot is refused and close touches neither. Fails if the first one
-  // is taken. Workspaces of other owners may share a label.
+  // Protects: S3 refuses duplicate task tab labels within one workspace.
+  // Fails if close chooses the first candidate or publishes recovery.
   test("close with two tabs under the task's label in one workspace", async () => {
     fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
     await dispatch({ task: task(), humanApproved: false }, ctx(herdr(null)));
@@ -879,10 +858,8 @@ describe("lost or broken confirmations (third verification of TC-0002)", () => {
     expect(fake.state().tabs).toHaveLength(3);
   });
 
-  // Protects: TC-0002 Emenda 1 (finding Q1), when the creation's answer and
-  // the reconciliation snapshot both fail, close still finds the workspace
-  // by its label and closes it, in both modes. Fails if close trusts only
-  // the recorded ID and exits 0 with the workspace open.
+  // Protects: F1/X1 recover an unrecorded tab by label in its recorded workspace.
+  // Fails if close leaves that tab open or removes the neighboring human tab.
   for (const harness of ["codex", "claude-code"]) {
     test(`close after a lost creation answer and a lost reconciliation, ${harness}`, async () => {
       fake.script({ createAnswer: "garbage-after", snapshot: "fail-once-with-workspace" });
@@ -945,8 +922,8 @@ describe("required cases of section 11 (finding T4)", () => {
     expect(fake.calls()).toEqual([]);
   });
 
-  // Protects: H3, a workspace without a tab maps to null tab and pane, never
-  // to an invented one. Fails if the mapping makes them up.
+  // Protects: S1 keeps a workspace without inventing a tab or pane for it.
+  // Fails if workspace mapping manufactures a tab in the separate tab list.
   test("a workspace without a tab", async () => {
     fake.script({ extraWorkspaces: [{ workspace_id: "w9", label: "solto" }] });
     const snap = await herdr().snapshot();

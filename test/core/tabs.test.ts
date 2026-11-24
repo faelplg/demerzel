@@ -30,6 +30,8 @@ const capture = () => ({ tasks: sb.tasksSnapshot(), git: sb.gitState(), effects:
 describe("project workspace tabs: refusals before effects and scoped ownership", () => {
   // Guards R1-R4: every mismatch must leave interrupted recovery unpublished.
   for (const label of ["missing", "Project", " project", "project ", "project-extra"]) {
+    // Protects: R1-R4 require exact workspace labels before recording or recovery.
+    // Fails if a case, whitespace or prefix match succeeds or any refusal publishes effects.
     test(`exact lookup refuses ${JSON.stringify(label)} before recording or recovery`, async () => {
       await interrupted();
       be.snapshotNow().workspaces[0]!.label = label;
@@ -42,6 +44,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
       expect(capture()).toEqual(before);
     });
   }
+  // Protects: R3 names every ambiguous workspace and refuses without effects.
+  // Fails if the first match is chosen or waiting recovery is published.
   test("ambiguous project labels refuse with all IDs and no effects", async () => {
     await interrupted();
     const extra = be.addWorkspace("project");
@@ -56,6 +60,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
   // F1-F4 through recovery and close, including a foreign agent beside our own.
   for (const foreign of [null, "dz-ffffffffffffffff", "human", "beside-own"] as const) {
     for (const command of ["recovery", "close"] as const) {
+      // Protects: F2-F4 distinguish foreign agents from recoverable empty pre-start tabs.
+      // Fails if recovery adopts a foreign tab, close mutates before refusal or an empty tab is lost.
       test(`${command}: ${foreign ?? "empty pre-start"} candidate ownership`, async () => {
         const r = await interrupted();
         const tab = be.addTab(tabLabel(r));
@@ -100,6 +106,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
   }
   for (const realCandidate of [false, true]) {
     for (const command of ["recovery", "close"] as const) {
+      // Protects: F1 scopes recovery and close to the recorded project workspace.
+      // Fails if an outside label match is adopted, closed or treated as a duplicate.
       test(`${command}: same label outside project ignored, real candidate ${realCandidate}`, async () => {
         const r = await interrupted();
         const other = be.addWorkspace("other");
@@ -118,6 +126,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
       });
     }
   }
+  // Protects: S3 refuses duplicate task tab labels before recovery publication.
+  // Fails if a candidate is chosen or a task file or backend effect changes.
   test("duplicate task labels in recorded workspace refuse every snapshot without recovery", async () => {
     const r = await interrupted();
     be.addTab(tabLabel(r)); be.addTab(tabLabel(r));
@@ -127,6 +137,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
     expect(capture()).toEqual(before);
   });
   for (const recorded of [false, true]) {
+    // Protects: V3/X6 recover and close legacy tasks only by recorded IDs.
+    // Fails if a pre-0.19 task adopts a matching label without its own recorded tab.
     test(`legacy task has recorded tab ${recorded}: never uses label fallback`, async () => {
       be.script({ statusAfterSend: "idle" });
       await dispatch({ task: task(), humanApproved: false }, ctx());
@@ -141,6 +153,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
       expect(be.snapshotNow().tabs.some((t) => t.id === ownTab)).toBe(!recorded);
     });
   }
+  // Protects: X4 records a last-tab close and requires the workspace to be recreated.
+  // Fails if the last-tab detail is false or the next dispatch creates a workspace.
   test("last-tab close records removal and next dispatch refuses missing", async () => {
     be.script({ statusAfterSend: "idle" });
     await dispatch({ task: task(), humanApproved: false }, ctx());
@@ -149,6 +163,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
     expect(record().history.at(-1)?.detail).toEqual({ tab_closed: "w1:t1", last_tab_in_workspace: true });
     expect((await dispatch({ task: task({ id: "NEXT" }), humanApproved: false }, ctx())).envelope.refusal?.code).toBe("project-workspace-missing");
   });
+  // Protects: S2/X3 keep each unit independent beside a human tab.
+  // Fails if status, wait or resume selects a neighbor or close removes its tab.
   test("two units observe, wait, resume and close independently beside a human", async () => {
     be.script({ startup: "blocked" });
     await dispatch({ task: task(), humanApproved: false }, ctx());
@@ -169,6 +185,8 @@ describe("project workspace tabs: refusals before effects and scoped ownership",
   });
 });
 
+// Protects: S1/S2 give the fake the adapter pane priority and split-agent refusal.
+// Fails if a human pane hides a unit or two Demerzel panes in one tab are accepted.
 test("fake snapshot selects per-tab agent pane and refuses split Demerzel agents", async () => {
   const tab = be.addTab("human");
   const state = be.snapshotNow();
@@ -180,6 +198,8 @@ test("fake snapshot selects per-tab agent pane and refuses split Demerzel agents
   await expect(be.snapshot()).rejects.toThrow("multiple Demerzel panes in one tab");
 });
 
+// Protects: X1 leaves an already failed task pane and created list unchanged.
+// Fails if label-based close rewrites pane or adds resources to created.
 test("close of an already failed task leaves pane and created unchanged", async () => {
   be.script({ failAfter: "worktree" });
   await dispatch({ task: task(), humanApproved: false }, ctx());
@@ -189,4 +209,31 @@ test("close of an already failed task leaves pane and created unchanged", async 
   expect(record().backend_ids.tab).toBe(tab);
   expect(record().backend_ids.pane).toBeNull();
   expect(record().created).toEqual(r.created);
+});
+
+// Protects: V3/X6 observe legacy resource records and close only their recorded tab.
+// Fails if status migrates created, or close removes the legacy workspace or its extra tab.
+test("legacy status preserves workspace resources and close leaves the extra tab", async () => {
+  be.script({ statusAfterSend: "idle" });
+  await dispatch({ task: task(), humanApproved: false }, ctx());
+  const r = record();
+  delete r.project_workspace;
+  const legacyWorkspace = { kind: "workspace" as const, id: r.backend_ids.workspace! };
+  r.created.splice(1, 0, legacyWorkspace);
+  be.snapshotNow().workspaces[0]!.label = tabLabel(r);
+  registry().write(r);
+  const before = sb.tasksSnapshot();
+  const observed = await status({ ids: [r.id], all: false }, ctx());
+  expect(observed.code).toBe(1);
+  expect(observed.envelope.refusal).toBeNull();
+  expect(observed.envelope.tasks[0]?.agent).toBe("idle");
+  expect(observed.envelope.tasks[0]?.created).toEqual(r.created);
+  expect(observed.envelope.tasks[0]?.created).toContainEqual(legacyWorkspace);
+  expect(sb.tasksSnapshot()).toEqual(before);
+  expect((await close({ id: r.id, discardWorktree: false }, ctx())).code).toBe(0);
+  const snapshot = await be.snapshot();
+  expect(snapshot.workspaces).toContainEqual({ id: legacyWorkspace.id, label: tabLabel(r) });
+  expect(snapshot.tabs.map((t) => t.id)).toEqual(["w1:t0"]);
+  expect(record().created).toEqual(r.created);
+  expect(record().history.at(-1)?.detail).toEqual({ tab_closed: r.backend_ids.tab, last_tab_in_workspace: false });
 });
