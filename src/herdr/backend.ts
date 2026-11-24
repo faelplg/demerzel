@@ -173,7 +173,8 @@ export class HerdrBackend implements Backend {
       return { id, workspace, label, number: number as number };
     });
     unique("aba", tabRows.map((t) => t.id));
-    unique("task tab label", tabRows.filter((t) => TASK_LABEL.test(t.label)).map((t) => JSON.stringify([t.workspace, t.label])));
+    const taskLabels = tabRows.filter((t) => TASK_LABEL.test(t.label)).map((t) => JSON.stringify([t.workspace, t.label]));
+    if (new Set(taskLabels).size !== taskLabels.length) broken("Duplicate task tab label in one workspace");
     const tabById = new Map(tabRows.map((t) => [t.id, t]));
     const paneRows = list("panes").map((p) => {
       const id = ident(p, "pane_id") ?? broken("pane sem pane_id");

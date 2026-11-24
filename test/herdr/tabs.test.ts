@@ -259,3 +259,9 @@ test("observation, resume and close never resolve renamed or ambiguous workspace
   fake.setAgentStatus(record().agent_name, "idle");
   expect((await close({ id: record().id, discardWorktree: false }, ctx())).code).toBe(0);
 });
+
+test("duplicate task tabs have an English diagnosis", async () => {
+  await dispatch({ task: task(), humanApproved: false }, ctx());
+  edit((s) => s.tabs.push({ ...s.tabs[1]!, id: "duplicate", tab: "duplicate", pane: "duplicate-pane" }));
+  await expect(be.snapshot()).rejects.toThrow("Duplicate task tab label in one workspace");
+});
