@@ -2,17 +2,22 @@
 
 **Contract ID:** `TC-0005`\
 **Template version:** `0.4`\
-**Contract revision:** 2, 2026-11-23. Revision 1 received the cross-vendor
+**Contract revision:** 3, 2026-11-24. Revision 1 received the cross-vendor
 critique of `agy` in `gemini-4-argon-high`, role `radiant-grill`: verdict
 PASS, with no blocker or major, three minors and two nits, all applied in
-revision 2 before any Build
-([critique](../verification/2026-11-23-tc-0005-grill.md))\
+revision 2 before any Build. Revision 3 applies the owner's decision of
+2026-11-24 to accept the two High findings of the Copilot review on
+[PR #66](https://github.com/faelplg/demerzel/pull/66) and fix them in the
+contract before any Build: the label fallback is scoped to the recorded
+project workspace and checks who owns the tab (requirements F1 to F4,
+section 18, decision 9)
+([critique and review record](../verification/2026-11-23-tc-0005-grill.md))\
 **Project:** `demerzel`\
 **Iteration:** Plan 0.12, increment 9\
 **Status:** `READY`\
 **Lifecycle:** proposed; the cross-vendor critique of section 18, decision
-1, is done; the orchestrator activates it in `ACTIVE.md` after the owner
-approves revision 2\
+1, and the PR #66 review of decision 9 are applied; the orchestrator
+activates it in `ACTIVE.md` after the owner approves revision 3\
 **Owner:** Fael (human); contract authored by an agent (`claude-code`,
 model `claude-opus-5-5`, effort `high`); Build by an agent in the
 `radiant-dev` role; orchestrator responsible for the independent critique\
@@ -209,8 +214,10 @@ sides. A split would leave each unit with a half-migrated interface and
    - Spec 2.3: a task records the project workspace it was dispatched to
      (`project_workspace`, output 4) and its tab and pane IDs; since 0.19
      `created` never lists a workspace, because Demerzel creates none;
-     recovery of `launching` finds the tab by recorded ID or, without it, by
-     its unique task label (requirements V1 to V3).
+     recovery of `launching` finds the tab by recorded ID or, without it,
+     through the label fallback, only in the recorded project workspace and
+     only for a tab that passes the ownership check (requirements F1 to F4
+     and V1 to V3).
    - Spec 2.4: `herdr.workspace_labels` in the example and its rules
      (requirements C1 to C3).
    - Spec 2.5: the table rows "Criar sessão" for both harnesses become
@@ -221,13 +228,16 @@ sides. A split would leave each unit with a half-migrated interface and
      by the project workspace lookup (requirements R1 to R6) and the
      last-tab behavior (X4); the label bullet says the task label is the
      tab's label and the project workspace keeps its own; a bullet states
-     the per-tab snapshot rules (S1 to S5). The minimum version stays 0.9.0,
+     the per-tab snapshot rules (S1 to S5); a bullet states the label
+     fallback, its scope to the recorded project workspace and its
+     ownership check (F1 to F4). The minimum version stays 0.9.0,
      with the note of section 18, refinement 6.
    - Spec 4: `dispatch` lists the workspace lookup among the core refusals
      under the project lock; `close` closes the unit's tab, not the
-     workspace.
-   - Spec 5: the two refusals of requirement R2 and R3 in the table of
-     refusals this Spec adds.
+     workspace, and its row of the command matrix gains `tab-not-owned`
+     (requirement F3).
+   - Spec 5: the three refusals of requirements R2, R3 and F3 in the table
+     of refusals this Spec adds.
    - Spec 7: item 7 rewritten for requirement Z1 to Z9, and a new item 12,
      "Tabs in the project workspace (Plan increment 9, faelplg/demerzel#29)",
      listing the fake herdr and fake backend proofs of section 7.
@@ -242,7 +252,8 @@ sides. A split would leave each unit with a half-migrated interface and
    operation over the snapshot the command already read, called by
    `dispatch` among its refusals, with the two new refusal codes.
 3. Tabs instead of workspaces in the herdr backend and in the fake backend,
-   by requirements T1 to T5 and X1 to X6: `launch` opens a tab in the
+   by requirements T1 to T5, F1 to F4 and X1 to X6, with the core refusal
+   `tab-not-owned` of F3: `launch` opens a tab in the
    recorded project workspace; `closeWorkspace` is replaced by
    `closeTab(tabId)` in the `Backend` interface; no `herdr workspace create`,
    `workspace close` or `worktree create` is left in `src/`.
@@ -281,9 +292,10 @@ sides. A split would leave each unit with a half-migrated interface and
    lost reconciliation snapshot). They are rewritten against `tab create`
    by requirement T4: a partial or contradictory answer records nothing
    from itself; with a working reconciliation snapshot, the tab and pane
-   found by the unique task label are recorded; with a lost one, the task
+   found by the label fallback of F1 and F2 are recorded; with a lost one,
+   or a candidate that fails F2, the task
    ends `launch-failed` with `backend_ids.tab` and `backend_ids.pane` null,
-   and a later `close` finds the tab by label (X1). The case "without the
+   and a later `close` uses the label fallback (X1). The case "without the
    workspace object" is the normal `tab create` answer of herdr 0.9.5, so
    its test becomes "without `tab.workspace_id`". Each such change goes in
    the report with the test name and the reason.
@@ -410,10 +422,11 @@ Tabs (output 3, Spec 2.5):
   and both workspace IDs equal the recorded workspace. A `workspace` object
   is not expected, since herdr 0.9.5 sends none, and is ignored if present.
   Any other answer, partial or contradictory, records nothing from itself:
-  the launch fails, and the failure path finds the tab by its unique task
-  label in a fresh snapshot, as the workspace is found today, recording
-  that tab and its pane; with that snapshot lost too, nothing is recorded,
-  and a later `close` finds the tab by label (X1). This replaces today's
+  the launch fails, and the failure path looks for the tab in a fresh
+  snapshot through the label fallback of F1 and F2, recording that tab and
+  its pane only when the candidate passes; with that snapshot lost too, or
+  a candidate that fails F2 (F3), nothing is recorded, and a later `close`
+  uses the label fallback again (X1). This replaces today's
   rule that lists each resource a partial answer confirms (findings K2 and
   L2 of the TC-0002 verifications), so that `close` and recovery never act
   on a tab or pane the answer did not fully confirm; the tests of output 8
@@ -425,19 +438,25 @@ Tabs (output 3, Spec 2.5):
 Snapshot (output 5, Spec 2.5):
 
 - [ ] S1. `Snapshot` exposes `workspaces: { id, label }[]`,
-  `tabs: { id, workspace, label, pane }[]` and `agents` as today. A tab's
+  `tabs: { id, workspace, label, pane }[]` and
+  `agents: { name, status, pane, tab }[]`, where an agent's `tab` is the
+  tab of its pane, as herdr's snapshot gives it and S4 checks; the
+  ownership check of F2 reads it. A tab's
   `pane` is the pane of the Demerzel agent in it; without one, the first
   pane holding a named agent; without agents, the tab's first listed pane;
   `null` for a tab with no pane.
 - [ ] S2. Two Demerzel agents in different tabs of one workspace are a
   valid snapshot, and each is observed in its own tab; two Demerzel agents
   in different panes of one tab are refused as a broken snapshot.
-- [ ] S3. Among tabs whose label matches the task label pattern
-  (`^\S+ dz-[0-9a-f]{16}$`), labels are unique across the whole snapshot;
-  two such tabs with one label refuse the snapshot (`BackendError`, so
+- [ ] S3. Among the tabs of one workspace whose label matches the task
+  label pattern (`^\S+ dz-[0-9a-f]{16}$`), labels are unique; two such tabs
+  in one workspace with one label refuse the snapshot (`BackendError`, so
   `backend-unavailable` before a command's first effect) rather than one
-  being chosen. Tabs with other labels, such as the human's `"1"`, and
-  workspace labels may repeat freely.
+  being chosen. The same task label on tabs of different workspaces is a
+  valid snapshot: it is never a duplicate, and only the tab in the task's
+  recorded project workspace can be a candidate (F1). Tabs with other
+  labels, such as the human's `"1"`, and workspace labels may repeat
+  freely.
 - [ ] S4. A tab without `label`, `number`, `tab_id` or `workspace_id`, a tab
   of a workspace outside the snapshot, and every relation already checked
   today, refuse the snapshot as a broken answer, never as an absent tab.
@@ -445,14 +464,64 @@ Snapshot (output 5, Spec 2.5):
   pane is not the pane of any tab; non-Demerzel tabs, panes and agents in
   the project workspace change no Demerzel task's observed state.
 
+Label fallback (outputs 3 and 5, Spec 2.3, 2.5, 4 and 5):
+
+- [ ] F1. The label fallback finds a task's tab when its `backend_ids.tab`
+  is `null` and the task records `project_workspace`. It is used only by
+  the failure path of T4, by recovery (V1) and by `close` (X1). Its only
+  candidates are the snapshot's tabs whose `workspace` equals
+  `project_workspace.id` and whose label is exactly the task label; by S3
+  there is at most one. A tab with the task label in any other workspace
+  is ignored: it is never recorded, written to `backend_ids` or `created`,
+  or closed, and it never makes the snapshot fail as a duplicate. A task
+  with no `project_workspace`, recorded before revision 0.19, has no label
+  fallback; it is observed, recovered and closed by its recorded IDs only
+  (V3, X6), and no workspace is looked up by label for it.
+- [ ] F2. Ownership check. The agents of a candidate are the snapshot's
+  agents whose `tab` is the candidate (S1). The candidate passes when it
+  has no agent, or when its only agent is the task's recorded
+  `agent_name`. Any other agent in it, Demerzel's (a `dz-` name of another
+  task) or any other named agent, alone or beside the task's own agent,
+  fails the check. A candidate that fails is never recorded, written to
+  `backend_ids` or `created`, or closed.
+- [ ] F3. A candidate that fails F2:
+  - in the failure path of T4, records nothing; the task ends
+    `launch-failed` with `backend_ids.tab` and `backend_ids.pane` `null`,
+    and its failure reason names the candidate tab and its agents;
+  - in recovery (V1), is not adopted: the task is recovered as if no tab
+    had been found, and its recovery history entry's detail gains exactly
+    `tab_not_owned: { tab: <candidate tab ID>, agents: [<its agent names, sorted>] }`;
+  - in `close` (X1), is the core refusal `tab-not-owned`, exit `2`, with no
+    effect by Spec 5: checked after `task-working` and before the recovery
+    is published, so no task file is written, no `tab-found` entry is
+    added, no recovery is published and no backend effect call is made.
+    The message, in English, names the task, the candidate tab, its
+    workspace, its agents and the task's own agent name; `next` is "Check
+    that tab in herdr. If it is not this unit's, rename or close it
+    yourself, then run close again." Renaming it leaves no candidate, so
+    the next `close` closes no tab and records `tab_closed: null` (X2).
+- [ ] F4. A candidate with no agent passes F2 on purpose: it is the tab of
+  a task whose dispatch stopped between `tab create` and `agent start`, or
+  whose `tab create` answer and reconciliation snapshot were lost, and
+  recovery and `close` must still record and close it. herdr 0.9.5's
+  snapshot does not tell it apart from an empty tab a human labeled
+  `<task id> <agent name>` in the project workspace, and no heuristic on
+  the cwd, pane title, tab number or process is added to try, since any of
+  them could refuse that real pre-start tab. The residual risk is a known
+  limitation (section 16).
+
 Recovery (output 5, Spec 2.3):
 
 - [ ] V1. Recovery of `launching` finds the tab by recorded
-  `backend_ids.tab`, or, without it, by its unique task label; records the
-  tab and its pane in `created` and `backend_ids`; finds the agent by name;
-  never adds a workspace to `created`.
-- [ ] V2. With two tabs under the task label, the snapshot is refused (S3),
-  so the recovery is not planned and nothing is published.
+  `backend_ids.tab`, or, without it, through the label fallback of F1 in
+  the recorded project workspace; records the tab and its pane in
+  `created` and `backend_ids` only when it passes the ownership check of
+  F2, and otherwise follows F3; finds the agent by name; never adds a
+  workspace to `created`.
+- [ ] V2. With two tabs under the task label in the recorded project
+  workspace, the snapshot is refused (S3), so the recovery is not planned
+  and nothing is published. A tab with the task label in another workspace
+  changes nothing (F1).
 - [ ] V3. A task recorded before revision 0.19, with no
   `project_workspace`, is recovered and observed by its recorded IDs and
   agent name; its per-task workspace is not looked up by label.
@@ -460,8 +529,11 @@ Recovery (output 5, Spec 2.3):
 Close (output 3, Spec 4):
 
 - [ ] X1. `close` finds the unit's tab by recorded `backend_ids.tab`, or,
-  without it, by its unique task label; a tab found by label is written to
-  `backend_ids.tab` with the history entry `tab-found`, detail exactly
+  without it, through the label fallback of F1 in the recorded project
+  workspace, with the ownership check of F2; a candidate that fails F2 is
+  the refusal `tab-not-owned` of F3. A tab found by label and passing F2
+  is written to `backend_ids.tab` with the history entry `tab-found`,
+  detail exactly
   `{ tab: <found tab ID>, by: "label" }`, before the close.
   `backend_ids.pane` is left as it is, also when `null`, and `created` is
   not changed by `close`. When the tab is in the snapshot, `close` runs
@@ -494,7 +566,9 @@ Close (output 3, Spec 4):
   already `closed` repeats the discard with no backend call.
 - [ ] X6. A task recorded before revision 0.19 closes its recorded tab with
   `tab close`; herdr removes its per-task workspace with that last tab, and
-  a legacy workspace with extra tabs stays open for the human.
+  a legacy workspace with extra tabs stays open for the human. Without a
+  recorded tab it has no label fallback (F1): no tab is closed, and
+  `closed` records `tab_closed: null`.
 
 Messages and boundary:
 
@@ -547,12 +621,12 @@ Real herdr scenario (output 10, Spec 7, item 7), on the isolated
 | Baseline | Status | Application in this task | Evidence |
 | --- | --- | --- | --- |
 | EB-01 Deliberate complexity | REQUIRED | One lookup, pure over the snapshot already read; one close operation; no workspace creation path and no placeholder tab | Diff review; `Backend` interface diff |
-| EB-02 Correctness and contracts | REQUIRED | Refusals before any effect; the workspace decision recorded and never re-read; per-tab identity in snapshot, recovery and close; no other tab ever closed | Refusal tests with proof of no effect; close tests with neighbor tabs and a working neighbor agent |
+| EB-02 Correctness and contracts | REQUIRED | Refusals before any effect; the workspace decision recorded and never re-read; per-tab identity in snapshot, recovery and close; the label fallback limited to the recorded project workspace and to a tab with no agent or only the task's own; no other tab ever recorded or closed | Refusal tests with proof of no effect; close tests with neighbor tabs and a working neighbor agent; fallback tests with the task label in another workspace and on a tab hosting a foreign agent |
 | EB-03 Verification and tests | REQUIRED | Fake backend and fake herdr in `check`; real herdr in the scenario; real harnesses in the smoke | `bun run check`, scenario log, smoke record |
 | EB-04 Security and privacy | APPLICABLE | No new egress, process or flag; config messages never echo a label value; the request is unchanged | Marker test of Spec 7, item 4, still passing; C1 message test |
 | EB-05 Maintainability | REQUIRED | The core knows a "project workspace" only through the `Backend` port and never reads the `herdr` block | Boundary test B1 |
 | EB-06 Dependencies | REQUIRED | None added | `bun.lock` and `package.json` with no diff |
-| EB-07 Diagnosis | REQUIRED | Missing and ambiguous say which label, from where, and which IDs; a config key is quoted with `JSON.stringify`; `tab-found`, `close-failed` and `closed` carry the exact details of X1 and X2, including the tab and whether it was the workspace's last tab | Assertions on the `--json` envelope, the text and the history details, compared whole |
+| EB-07 Diagnosis | REQUIRED | Missing and ambiguous say which label, from where, and which IDs; `tab-not-owned` names the tab, its workspace, its agents and the task's agent; a config key is quoted with `JSON.stringify`; `tab-found`, `close-failed`, `closed` and the recovery's `tab_not_owned` carry the exact details of X1, X2 and F3, including the tab and whether it was the workspace's last tab | Assertions on the `--json` envelope, the text and the history details, compared whole |
 | EB-08 Experience and efficiency | APPLICABLE | Units appear in the workspace the owner already uses; `--no-focus` keeps the owner's focus | Scenario Z3 and Z4; smoke |
 
 ### Practices
@@ -572,7 +646,8 @@ Real herdr scenario (output 10, Spec 7, item 7), on the isolated
 - Isolated Git in tests, as in TC-0001: empty `GIT_CONFIG_GLOBAL`,
   `GIT_CONFIG_NOSYSTEM=1`, fixed identity.
 - A fake used as evidence for a herdr property, such as a duplicate tab
-  label, a tab answer naming another workspace, or the workspace removed
+  label, the same tab label in two workspaces, an agent's `tab_id` in the
+  snapshot, a tab answer naming another workspace, or the workspace removed
   with its last tab, has that property checked against the probe answers of
   section 3 or the scenario, so the fake cannot agree with a wrong backend.
 - New user-facing messages are in English, by the owner's rule; existing
@@ -614,17 +689,37 @@ the link to the green run on the Build PR.
 
 ### Focused verification
 
-- Each refusal of R2, R3 and C1 with exit `2`, its code in the JSON, and no
-  effect: no task file, branch, worktree, fake backend effect call or fake
-  herdr effect call, and no published recovery of an interrupted task that
-  was waiting.
+- Each refusal of R2, R3, C1 and F3 with exit `2`, its code in the JSON,
+  and no effect: no task file written, no branch, worktree, fake backend
+  effect call or fake herdr effect call, and no published recovery of an
+  interrupted task that was waiting.
 - Two units dispatched into one workspace, both agents alive in the fake
   herdr; `status`, `wait`, `resume` and `close` of each see its own agent and
   tab; `close` of one leaves the other working.
 - A human tab and a human agent in the project workspace, with labels and
   panes of their own, ignored by uniqueness and never closed.
 - Recovery of an interrupted `launching` task whose tab was created but not
-  recorded, found by label, and refused when two tabs share the label.
+  recorded, found by label, and refused when two tabs of the recorded
+  project workspace share the label.
+- The label fallback (F1 to F4), each case through recovery (V1), `close`
+  (X1) and, in the herdr backend, the failure path of T4:
+  - (a) a tab with the same task label in another workspace, alone or
+    beside the task's real tab, is ignored: not recorded, not closed, and
+    `snapshot()` does not fail as a duplicate;
+  - (b) a tab in the project workspace with the task label hosting a
+    foreign agent, once another Demerzel unit's agent and once a non-`dz-`
+    named agent, and once beside the task's own agent, is not adopted by
+    recovery (with the `tab_not_owned` detail), records nothing in the T4
+    failure path, and makes `close` refuse with `tab-not-owned`, exit `2`,
+    with no task file written, no `tab-found` entry and no `tab close`
+    call;
+  - (c) the pre-`agent start` case: tab created, agent not started, no tab
+    or pane ID recorded, no agent in the tab, label matching and workspace
+    equal to the recorded `project_workspace`; recovery records that tab
+    and its pane, and `close` writes `tab-found` and closes it;
+  - a task recorded before 0.19, with no `project_workspace` and no
+    recorded tab, beside a tab with its task label: nothing is found by
+    label and nothing is closed.
 - A task file recorded before 0.19, from a fixture, observed, recovered and
   closed by its recorded tab.
 
@@ -652,8 +747,17 @@ code:
   named in a message without `JSON.stringify`;
 - `workspace` added to `created`;
 - the old refusal of two Demerzel agents in one workspace kept;
-- duplicate task tab labels accepted, or duplicate non-task tab labels
-  refused;
+- duplicate task tab labels in one workspace accepted, duplicate non-task
+  tab labels refused, or the same task label in two workspaces refused as
+  a duplicate (S3);
+- the label fallback searching every workspace instead of the recorded
+  project workspace (F1, case a);
+- the ownership check skipped, or passing a tab whose agents include one
+  other than the task's own (F2, case b);
+- `close` writing `tab-found`, publishing the recovery or calling
+  `tab close` before refusing `tab-not-owned` (F3);
+- a candidate with no agent refused (F4, case c);
+- the label fallback used for a task with no `project_workspace` (F1);
 - the project workspace re-resolved after the preparation.
 
 ### Readback
@@ -691,9 +795,9 @@ The task can only be declared `DONE` when:
 
 - [ ] Spec 0.19 and Plan 0.13 carry every item of output 1, written before
   the first code commit of the Build;
-- [ ] each requirement C1 to C3, R1 to R6, T1 to T5, S1 to S5, V1 to V3,
-  X1 to X6, E1, B1 and Z1 to Z9 has a test or evidence, linked in the
-  traceability table;
+- [ ] each requirement C1 to C3, R1 to R6, T1 to T5, S1 to S5, F1 to F4,
+  V1 to V3, X1 to X6, E1, B1 and Z1 to Z9 has a test or evidence, linked in
+  the traceability table;
 - [ ] a `dispatch` with no workspace labeled with the project label, and one
   with two, each exit `2` with `project-workspace-missing` and
   `project-workspace-ambiguous`, with no task file, branch, worktree, tab or
@@ -707,6 +811,21 @@ The task can only be declared `DONE` when:
 - [ ] `close` runs `herdr tab close` on the unit's tab only, never
   `workspace close`, and the project workspace and every other tab remain,
   in the fake herdr and in the scenario;
+- [ ] (a) a tab with the task label in a workspace other than the task's
+  recorded `project_workspace` is never recorded by recovery or by the T4
+  failure path, never closed by `close`, and does not make `snapshot()`
+  fail as a duplicate, in the fake backend and in the fake herdr;
+- [ ] (b) a tab in the recorded project workspace with the task label that
+  hosts a foreign agent (another Demerzel unit's agent, or any other named
+  agent, alone or beside the task's own) is never recorded or closed:
+  recovery leaves it with the `tab_not_owned` detail, the T4 failure path
+  records nothing, and `close` refuses with `tab-not-owned`, exit `2`, with
+  no task file written, no `tab-found` entry, no published recovery and no
+  backend effect call;
+- [ ] (c) a tab in the recorded project workspace with the task label and
+  no agent, left by a dispatch that stopped before `agent start` with no
+  tab or pane ID recorded, is recorded by recovery and closed by `close`
+  with `tab-found`;
 - [ ] `grep` finds no `workspace create`, `workspace close` or
   `worktree create` herdr call in `src/`;
 - [ ] `bun run check` passes in a clean clone, and `bun run test:core` still
@@ -760,10 +879,12 @@ Mark `FAIL` when:
 - the criteria of section 12 cannot be met;
 - verification shows a regression in the core, the herdr backend, the CLI,
   the preparation or the Radiant integration;
-- a `project-workspace-missing`, `project-workspace-ambiguous` or
-  `config-invalid` refusal leaves an effect;
+- a `project-workspace-missing`, `project-workspace-ambiguous`,
+  `tab-not-owned` or `config-invalid` refusal leaves an effect;
 - Demerzel creates or closes a workspace, or closes a tab that is not the
   unit's own;
+- the label fallback records or closes a tab outside the task's recorded
+  project workspace, or a tab hosting an agent other than the task's own;
 - a working agent's tab is closed by `close` of another task;
 - `snapshot()` refuses two Demerzel units in one workspace.
 
@@ -810,9 +931,15 @@ Known limitations, to record in the report:
 - a `herdr.workspace_labels` key written through a symlink never matches,
   since it is compared with the main checkout's real path; the missing
   refusal names that real path;
-- two tabs under one task label refuse every snapshot, and so every command
-  that talks to the backend, until the human closes one, as with duplicate
-  workspace labels before this contract;
+- two tabs under one task label in one workspace refuse every snapshot, and
+  so every command that talks to the backend, until the human closes one,
+  as with duplicate workspace labels before this contract; the same label
+  in two workspaces does not;
+- an empty tab that a human labels exactly `<task id> <agent name>` in the
+  project workspace, while that task has no recorded tab, cannot be told
+  apart from the task's own tab left before `agent start`, so that task's
+  recovery records it and its `close` closes it (F4); a tab hosting any
+  other agent is refused instead (F3);
 - tasks recorded before revision 0.19 keep their per-task workspace; their
   `close` closes the recorded tab, which removes a workspace with no other
   tab, and a half-done legacy task is not found by workspace label;
@@ -828,9 +955,10 @@ Known limitations, to record in the report:
 
 ## 18. Owner decisions
 
-Decided by the owner on 2026-11-23 (America/Sao_Paulo): decisions 1 to 7
-in the message that asked for this contract, and decision 8 in the message
-that asked for revision 2. They are not reopened by the Build.
+Decided by the owner (America/Sao_Paulo): decisions 1 to 7 on 2026-11-23,
+in the message that asked for this contract; decision 8 on 2026-11-23, in
+the message that asked for revision 2; and decision 9 on 2026-11-24, in
+the message that asked for revision 3. They are not reopened by the Build.
 
 1. **2026-11-23:** Write this Task Contract before the Build. The contract
    is authored by `claude-code`, model `claude-opus-5-5`, effort `high`, and
@@ -884,6 +1012,25 @@ that asked for revision 2. They are not reopened by the Build.
    outputs 7, 8 and 10 and narrows acceptance criterion 13 to the tests that
    exist at the entry commit
    ([critique](../verification/2026-11-23-tc-0005-grill.md)).
+9. **2026-11-24:** Accept the two High findings of the Copilot review on
+   [PR #66](https://github.com/faelplg/demerzel/pull/66)
+   ([first](https://github.com/faelplg/demerzel/pull/66#discussion_r4674741148),
+   [second](https://github.com/faelplg/demerzel/pull/66#discussion_r4674741194))
+   and fix them in revision 3, before any Build, without reopening the
+   decisions above. The label fallback only considers tabs of the task's
+   recorded `project_workspace`; a tab with the task label in another
+   workspace is ignored and is not a duplicate. A label-matched candidate
+   is accepted when it hosts no agent or exactly the task's recorded agent,
+   and refused with no effect when it hosts any other agent; the no-agent
+   tab of a dispatch stopped before `agent start` stays recoverable, with
+   no extra heuristic. A task recorded before 0.19 keeps V3 and X6.
+   **Contract impact:** requirements F1 to F4; S1 (agents carry their
+   tab), S3 (uniqueness per workspace), T4, V1, V2, X1 and X6; outputs 1,
+   3 and 8; the refusal `tab-not-owned`; the EB-02 and EB-07 rows; section
+   9; the focused verification, mutations and acceptance criteria for
+   cases (a), (b) and (c); a FAIL condition; two known limitations; and
+   refinements 2 and 8
+   ([record](../verification/2026-11-23-tc-0005-grill.md)).
 
 ### Contract-level refinements
 
@@ -912,7 +1059,8 @@ alternatives.
 2. **Two new refusal codes**, `project-workspace-missing` and
    `project-workspace-ambiguous`, both core refusals with exit `2` and no
    effect (Spec 5). Discarded: reusing `backend-unavailable`, which tells
-   the owner to start the herdr server, the wrong action.
+   the owner to start the herdr server, the wrong action. Revision 3 adds a
+   third, `tab-not-owned` (refinement 8).
 3. **The lookup is a pure `Backend` operation over the snapshot `dispatch`
    already read**, placed after `agent-name-taken` and before the task
    lock, so refusals stay before the first effect and recovery is published
@@ -939,3 +1087,22 @@ alternatives.
 7. **Spec 0.19 and Plan 0.13 are written by the Build**, in its first
    commit, from output 1, and `ACTIVE.md` is set by the orchestrator in the
    activation PR, following the TC-0003 split of proposal and activation.
+8. **The label fallback and its ownership check** (requirements F1 to F4),
+   from decision 9. The candidate is limited to the recorded
+   `project_workspace` because that is the only workspace the task was
+   ever launched into, and the agents of a tab come from each agent's
+   `tab_id` in herdr's snapshot, already parsed today. `close` refuses a
+   foreign-agent candidate with the new core refusal `tab-not-owned`, exit
+   `2`, no effect, because only the human can tell what that tab is;
+   recovery and the T4 failure path, which close nothing and may run
+   inside another task's command, only decline to adopt it, so another
+   task's `dispatch` is not blocked by it. Discarded: reusing
+   `task-lost`, which says the agent is gone, or `task-working`, which
+   says to wait, neither the right action; `backend-unavailable` and the
+   project workspace codes, which name another problem. Discarded: keeping
+   S3's uniqueness across the whole snapshot, which would let one project's
+   tab block every command of another. Discarded: refusing a candidate
+   with no agent, or tying it to the task by cwd, pane title, tab number
+   or process, which would break the recovery of a dispatch stopped before
+   `agent start`; the Claude Code tab's cwd is the main checkout, which a
+   human tab may share.
