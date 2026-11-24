@@ -53,7 +53,7 @@ describe("verification 1: dispatch to close with the fake backend", () => {
       expect(x.envelope.tasks[0]?.lifecycle).toBe("closed");
       expect(existsSync(worktree)).toBe(true);
       expect(git(sb.repo, ["show-ref", "--verify", "refs/heads/radiant/TC-0099.1"], sb.env).code).toBe(0);
-      expect(be.effectCalls().map((call) => call.op)).toEqual(["launch", "send", "closeWorkspace"]);
+      expect(be.effectCalls().map((call) => call.op)).toEqual(["launch", "send", "closeTab"]);
 
       const after = await status({ ids: [], all: false }, ctx);
       expect(after.envelope.tasks).toEqual([]);

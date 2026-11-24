@@ -22,7 +22,7 @@ import { prepareFixture } from "../core/helpers/prepare-fixture.ts";
 import { sandbox, task } from "../core/helpers/sandbox.ts";
 
 const realHerdr = Bun.which("herdr");
-if (realHerdr === null) throw new Error("herdr não está no PATH");
+if (realHerdr === null) throw new Error("herdr is not on PATH");
 const session = `dz-test-${Math.random().toString(16).slice(2, 10)}`;
 const sb = sandbox();
 // The herdr client finds a session's socket under XDG_CONFIG_HOME, so the
@@ -64,7 +64,7 @@ writeFileSync(
   join(shim, "herdr"),
   `#!/bin/sh
 for a in "$@"; do printf '%s\\n' "$a" >> ${JSON.stringify(callLog)}; done; printf '\\n' >> ${JSON.stringify(callLog)}
-for a in "$@"; do last2="$prev $a"; prev="$a"; case "$last2" in "agent start") printf '%s\\n' '{"error":{"code":"scenario_stop","message":"o cenário recusa agent start"},"id":"cli:agent:start"}' >&2; exit 1;; esac; done
+for a in "$@"; do last2="$prev $a"; prev="$a"; case "$last2" in "agent start") printf '%s\\n' '{"error":{"code":"scenario_stop","message":"scenario refuses agent start"},"id":"cli:agent:start"}' >&2; exit 1;; esac; done
 exec ${JSON.stringify(realHerdr)} "$@"
 `,
 );
@@ -92,76 +92,79 @@ const record = (id: string): TaskRecord => JSON.parse(readFileSync(join(resolveP
 let server: ReturnType<typeof Bun.spawn> | null = null;
 try {
   const down = await backend.probe();
-  check("sessão parada: backend-unavailable com detalhe", !down.running && (down.detail ?? "").includes("parado"), down.detail);
+  check("stopped session: unavailable with detail", !down.running && (down.detail ?? "").includes("parado"), down.detail);
 
   server = Bun.spawn([realHerdr, "--session", session, "server"], { env: serverEnv, stdout: "ignore", stderr: "ignore" });
   const deadline = Date.now() + 15_000;
   while (!(await backend.probe()).running) {
-    if (Date.now() > deadline) throw new Error("o servidor herdr isolado não subiu");
+    if (Date.now() > deadline) throw new Error("isolated herdr server did not start");
     await Bun.sleep(200);
   }
   const probe = await backend.probe();
-  check("sondagem do herdr real", probe.running && probe.compatible && probe.versionOk, { version: probe.version });
+  check("real herdr probe", probe.running && probe.compatible && probe.versionOk, { version: probe.version });
 
-  // Codex mode: the core creates and prepares the worktree, then the
-  // backend opens workspace, tab and pane in it; the interposed herdr
-  // refuses agent start.
+  const effectCalls = () => calls().filter((c) => ["create", "close", "start", "prompt"].some((v) => c[3] === v));
+  const beforeMissing = { tasks: sb.tasksSnapshot(), git: sb.gitState(), effects: effectCalls().length };
+  const missing = await dispatch({ task: task({ id: "MISSING", base }), humanApproved: false }, ctx());
+  check("missing workspace refuses without effects", missing.code === 2 && missing.envelope.refusal?.code === "project-workspace-missing" && JSON.stringify(sb.tasksSnapshot()) === JSON.stringify(beforeMissing.tasks) && sb.gitState() === beforeMissing.git && effectCalls().length === beforeMissing.effects);
+  const project = herdr("workspace", "create", "--cwd", sb.repo, "--label", "project", "--no-focus").json?.result;
+  const workspace = project?.workspace?.workspace_id;
+  const humanTab = project?.tab?.tab_id;
+  if (typeof workspace !== "string" || typeof humanTab !== "string") throw new Error("workspace setup did not confirm IDs");
   const prepared = (r: TaskRecord) => {
     const events = r.history.map((h) => h.event);
-    const firstSession = r.history.findIndex((h) => h.event === "created" && h.detail?.["kind"] === "workspace");
+    const firstSession = r.history.findIndex((h) => h.event === "created" && h.detail?.["kind"] === "tab");
     return existsSync(join(r.worktree, "prepared", "scenario.json")) && r.project_preparation?.outcome === "succeeded" && events.indexOf("prepared") !== -1 && events.indexOf("prepared") < firstSession;
   };
-  const cx = await dispatch({ task: task({ id: "TC-0099.1", writes: ["a/"], harness: "codex", base }), humanApproved: false }, ctx());
-  const rc = record("TC-0099.1");
-  check("codex: launch-failed pelo agent start recusado", cx.code === 1 && rc.lifecycle === "launch-failed", rc.history.at(-1)?.detail);
-  check("codex: recursos em created", JSON.stringify(rc.created.map((c) => c.kind)) === JSON.stringify(["worktree", "workspace", "tab", "pane"]), rc.created.map((c) => c.kind));
-  check("codex: worktree e branch no commit base", existsSync(rc.worktree) && git(sb.repo, ["rev-parse", rc.branch], env).stdout === rc.base.commit);
-  check("codex: worktree prepared before the session", prepared(rc), rc.history.map((h) => h.event));
-  const codexCreate = calls().find((c) => c.includes("workspace") && c.includes("create") && c.includes(`TC-0099.1 ${rc.agent_name}`)) ?? [];
-  check("codex: workspace opened with --cwd in the worktree", codexCreate[codexCreate.indexOf("--cwd") + 1] === rc.worktree, codexCreate);
-
-  const cl = await dispatch({ task: task({ id: "TC-0099.2", writes: ["b/"], harness: "claude-code", model: "claude-sonnet-5-5", effort: "low", base }), humanApproved: false }, ctx());
-  const rl = record("TC-0099.2");
-  check("claude-code: launch-failed with the worktree created by the core", cl.code === 1 && rl.lifecycle === "launch-failed" && existsSync(rl.worktree), rl.history.at(-1)?.detail);
-  check("claude-code: recursos em created", JSON.stringify(rl.created.map((c) => c.kind)) === JSON.stringify(["worktree", "workspace", "tab", "pane"]), rl.created.map((c) => c.kind));
-  check("claude-code: worktree prepared before the session", prepared(rl), rl.history.map((h) => h.event));
-  const claudeCreate = calls().find((c) => c.includes("workspace") && c.includes("create") && c.includes(`TC-0099.2 ${rl.agent_name}`)) ?? [];
-  check("claude-code: workspace opened at the project root", claudeCreate[claudeCreate.indexOf("--cwd") + 1] === sb.repo, claudeCreate);
-
-  const failing = await dispatch({ task: task({ id: "TC-0099.3", writes: ["c/"], harness: "codex", base: failingBase }), humanApproved: false }, ctx());
-  const rf = record("TC-0099.3");
-  const sessionCalls = calls().filter((c) => c.some((a) => a.includes(rf.agent_name)));
-  check("a failed preparation: launch-failed with no herdr session", failing.code === 1 && rf.lifecycle === "launch-failed" && sessionCalls.length === 0 && JSON.stringify(rf.created.map((c) => c.kind)) === JSON.stringify(["worktree"]), failing.envelope.tasks[0]?.launch_error);
-  check("no herdr worktree create call", !calls().some((c) => c.includes("worktree") && c.includes("create")), null);
-
-  const raw = herdr("api", "snapshot").json;
-  const labels = (raw?.result?.snapshot?.workspaces ?? []).map((w: { label: string }) => w.label);
-  check("label com espaço lido de volta no snapshot real", labels.includes(`TC-0099.1 ${rc.agent_name}`) && labels.includes(`TC-0099.2 ${rl.agent_name}`), labels);
-  const snap = await backend.snapshot();
-  const mapped = snap.workspaces.find((w) => w.id === rc.backend_ids.workspace);
-  check("snapshot do backend com aba e pane raiz", mapped?.tab === rc.backend_ids.tab && mapped?.pane === rc.backend_ids.pane, mapped);
-
-  // close without discard keeps worktree and branch.
-  const x1 = await close({ id: "TC-0099.1", discardWorktree: false }, ctx());
-  const stillThere = (herdr("api", "snapshot").json?.result?.snapshot?.workspaces ?? []).some((w: { workspace_id: string }) => w.workspace_id === rc.backend_ids.workspace);
-  check("close sem descarte fecha o workspace real", x1.code === 0 && !stillThere);
-  check("close sem descarte preserva worktree e branch", existsSync(rc.worktree) && git(sb.repo, ["rev-parse", "--verify", "--quiet", rc.branch], env).code === 0);
-  check("close do segundo modo", (await close({ id: "TC-0099.2", discardWorktree: false }, ctx())).code === 0);
-
-  let closedAgain = true;
-  try {
-    await backend.closeWorkspace(rc.backend_ids.workspace ?? "");
-  } catch {
-    closedAgain = false;
+  const records: TaskRecord[] = [];
+  for (const [i, harness] of ["codex", "claude-code"].entries()) {
+    const id = `TC-0099.${i + 1}`;
+    const launched = await dispatch({ task: task({ id, writes: [`${i}/`], harness, base }), humanApproved: false }, ctx());
+    const r = record(id);
+    records.push(r);
+    check(`${harness}: stopped at agent start`, launched.code === 1 && r.lifecycle === "launch-failed", r.history.at(-1)?.detail);
+    check(`${harness}: confirmed resources`, JSON.stringify(r.created.map((c) => c.kind)) === JSON.stringify(["worktree", "tab", "pane"]), r.created);
+    check(`${harness}: prepared before tab creation`, prepared(r));
+    const create = calls().find((c) => c.includes("create") && c.includes(`${id} ${r.agent_name}`)) ?? [];
+    check(`${harness}: tab argv and cwd`, create[2] === "tab" && create[create.indexOf("--workspace") + 1] === workspace && create[create.indexOf("--cwd") + 1] === (harness === "codex" ? r.worktree : sb.repo), create);
+    check(`${harness}: branch and worktree at base`, existsSync(r.worktree) && git(sb.repo, ["rev-parse", r.branch], env).stdout === r.base.commit);
   }
-  check("closeWorkspace sobre workspace que já não existe", closedAgain);
-
-  writeFileSync(join(rc.worktree, "solto.txt"), "trabalho\n");
-  const refused = await close({ id: "TC-0099.1", discardWorktree: true }, ctx());
-  check("descarte com alterações sai com 1 e mantém o worktree", refused.code === 1 && existsSync(rc.worktree), refused.envelope.tasks[0]?.discard);
-  rmSync(join(rc.worktree, "solto.txt"));
-  const removed = await close({ id: "TC-0099.1", discardWorktree: true }, ctx());
-  check("descarte repetido remove o worktree e mantém o branch", removed.code === 0 && !existsSync(rc.worktree) && git(sb.repo, ["rev-parse", "--verify", "--quiet", rc.branch], env).code === 0);
+  const [rc, rl] = records as [TaskRecord, TaskRecord];
+  const snap = await backend.snapshot();
+  check("two labeled tabs coexist in project workspace", records.every((r) => snap.tabs.some((t) => t.id === r.backend_ids.tab && t.workspace === workspace && t.label === `${r.id} ${r.agent_name}`)), snap.tabs);
+  check("status accepts both tabs", (await status({ ids: [], all: true }, ctx())).envelope.ok);
+  const failing = await dispatch({ task: task({ id: "PREP-FAIL", writes: ["failed/"], base: failingBase }), humanApproved: false }, ctx());
+  const rf = record("PREP-FAIL");
+  check("failed preparation has no backend session", failing.code === 1 && JSON.stringify(rf.created.map((c) => c.kind)) === JSON.stringify(["worktree"]) && !calls().some((c) => c.includes(`${rf.id} ${rf.agent_name}`)));
+  const duplicate = herdr("workspace", "create", "--cwd", sb.repo, "--label", "project", "--no-focus").json?.result;
+  const beforeAmbiguous = { tasks: sb.tasksSnapshot(), git: sb.gitState(), effects: effectCalls().length };
+  const ambiguous = await dispatch({ task: task({ id: "AMBIGUOUS", base }), humanApproved: false }, ctx());
+  check("ambiguous workspace refuses without effects", ambiguous.code === 2 && ambiguous.envelope.refusal?.code === "project-workspace-ambiguous" && JSON.stringify(sb.tasksSnapshot()) === JSON.stringify(beforeAmbiguous.tasks) && sb.gitState() === beforeAmbiguous.git && effectCalls().length === beforeAmbiguous.effects);
+  herdr("tab", "close", duplicate.tab.tab_id);
+  const mapped = herdr("workspace", "create", "--cwd", sb.repo, "--label", "mapped-project", "--no-focus").json?.result;
+  const mappedBackend = new HerdrBackend(env, { session, workspace_labels: { [sb.repo]: "mapped-project" } });
+  const mappedLaunch = await dispatch({ task: task({ id: "MAPPED", writes: ["mapped/"], base }), humanApproved: false }, ctx(mappedBackend));
+  check("override selects mapped workspace after duplicate removal", mappedLaunch.code === 1 && record("MAPPED").project_workspace?.id === mapped.workspace.workspace_id && record("MAPPED").project_workspace?.source === "config");
+  const x1 = await close({ id: rc.id, discardWorktree: false }, ctx());
+  const after = await backend.snapshot();
+  check("close removes only own tab", x1.code === 0 && !after.tabs.some((t) => t.id === rc.backend_ids.tab) && after.tabs.some((t) => t.id === humanTab) && after.tabs.some((t) => t.id === rl.backend_ids.tab) && after.workspaces.some((w) => w.id === workspace));
+  check("close preserves branch and worktree", existsSync(rc.worktree) && git(sb.repo, ["rev-parse", rc.branch], env).code === 0);
+  herdr("tab", "close", humanTab);
+  const x2 = await close({ id: rl.id, discardWorktree: false }, ctx());
+  const removedWorkspace = !(await backend.snapshot()).workspaces.some((w) => w.id === workspace);
+  check("last-tab close records last_tab_in_workspace", x2.code === 0 && record(rl.id).history.at(-1)?.detail?.["last_tab_in_workspace"] === true, { removedWorkspace });
+  const missingAgain = await dispatch({ task: task({ id: "MISSING-AGAIN", base }), humanApproved: false }, ctx());
+  check("dispatch after last-tab removal refuses missing", missingAgain.envelope.refusal?.code === "project-workspace-missing");
+  let closedAgain = true;
+  try { await backend.closeTab(rc.backend_ids.tab ?? ""); } catch { closedAgain = false; }
+  check("tab_not_found counts as closed", closedAgain);
+  check("backend never creates or closes a workspace", !calls().some((c) => c[2] === "workspace" && ["create", "close"].includes(c[3] ?? "")) && calls().some((c) => c[2] === "tab" && c[3] === "close"));
+  writeFileSync(join(rc.worktree, "untracked.txt"), "work\n");
+  const refused = await close({ id: rc.id, discardWorktree: true }, ctx());
+  check("dirty discard exits 1 and preserves worktree", refused.code === 1 && existsSync(rc.worktree));
+  rmSync(join(rc.worktree, "untracked.txt"));
+  const removed = await close({ id: rc.id, discardWorktree: true }, ctx());
+  check("repeated discard removes worktree and keeps branch", removed.code === 0 && !existsSync(rc.worktree) && git(sb.repo, ["rev-parse", rc.branch], env).code === 0);
 
   // H13 against the real server: it stops right after a successful probe.
   const stopping = Object.create(backend) as HerdrBackend;
@@ -172,9 +175,9 @@ try {
     return p;
   };
   const s = await status({ ids: [], all: true }, ctx(stopping));
-  check("servidor caindo entre sondagem e snapshot: backend-unavailable", s.code === 2 && (s.envelope.refusal?.message ?? "").includes("herdr api snapshot"), s.envelope.refusal?.message);
+  check("server drops between probe and snapshot: unavailable", s.code === 2 && (s.envelope.refusal?.message ?? "").includes("herdr api snapshot"), s.envelope.refusal?.message);
 } catch (error) {
-  check("cenário sem exceção", false, error instanceof Error ? error.message : String(error));
+  check("scenario completes without exception", false, error instanceof Error ? error.message : String(error));
 } finally {
   herdr("server", "stop");
   server?.kill();
@@ -185,5 +188,5 @@ try {
   rmSync(configHome, { recursive: true, force: true });
 }
 const failed = checks.filter((c) => !c.ok);
-console.log(`${checks.length - failed.length}/${checks.length} conferências passaram`);
+console.log(`${checks.length - failed.length}/${checks.length} checks passed`);
 process.exitCode = failed.length === 0 ? 0 : 1;

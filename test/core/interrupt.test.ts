@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { close, collect, dispatch, resume, status } from "../../src/core/index.ts";
-import { workspaceLabel } from "../../src/core/commands/common.ts";
+import { tabLabel } from "../../src/core/tab.ts";
 import { FakeBackend } from "../../src/core/fake-backend.ts";
 import { resolveProject } from "../../src/core/project.ts";
 import type { TaskRecord } from "../../src/core/types.ts";
@@ -28,7 +28,7 @@ function kinds(r: TaskRecord): string[] {
 
 type Expectation = { lifecycle: TaskRecord["lifecycle"]; created: string[]; requestSent: TaskRecord["request_sent"] };
 
-const SESSION = ["workspace", "tab", "pane"];
+const SESSION = ["tab", "pane"];
 const ALL = ["worktree", ...SESSION, "agent"];
 const lf = (created: string[]): Expectation => ({ lifecycle: "launch-failed", created, requestSent: false });
 
@@ -39,7 +39,6 @@ const CASES: Record<string, Array<[string, Expectation]>> = {
     ["wrote:recorded", lf([])],
     ["wrote:launching", lf([])],
     ["wrote:created:worktree", lf(["worktree"])],
-    ["wrote:created:workspace", lf(["worktree", ...SESSION])],
     ["wrote:created:tab", lf(["worktree", ...SESSION])],
     ["wrote:created:pane", lf(["worktree", ...SESSION])],
     ["wrote:created:agent", { lifecycle: "launched", created: ALL, requestSent: false }],
@@ -49,7 +48,6 @@ const CASES: Record<string, Array<[string, Expectation]>> = {
     ["wrote:recorded", lf([])],
     ["wrote:launching", lf([])],
     ["wrote:created:worktree", lf(["worktree"])],
-    ["wrote:created:workspace", lf(["worktree", ...SESSION])],
     ["wrote:created:tab", lf(["worktree", ...SESSION])],
     ["wrote:created:pane", lf(["worktree", ...SESSION])],
     ["wrote:created:agent", { lifecycle: "launched", created: ALL, requestSent: false }],
@@ -112,8 +110,8 @@ describe("interrupted dispatch and its recovery (R6, R7)", () => {
     const x = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
     expect(x.code).toBe(0);
     expect(record().lifecycle).toBe("closed");
-    expect(be.effectCalls().filter((c) => c.op === "closeWorkspace")).toHaveLength(1);
-    expect(be.snapshotNow().workspaces).toEqual([]);
+    expect(be.effectCalls().filter((c) => c.op === "closeTab")).toHaveLength(1);
+    expect(be.snapshotNow().tabs.map((t) => t.id)).toEqual(["w1:t0"]);
   });
 
   // Protects: a refusal leaves every task file as it was, also when an
@@ -196,14 +194,14 @@ describe("workspace identity across projects (Spec 2.5, revision 0.8)", () => {
   // Protects: a recorded workspace ID wins over any workspace that shares
   // the label. Fails if recovery looks the label up when the ID is known.
   test("a recorded workspace ID beats a decoy with the same label", async () => {
-    await interrupt("wrote:created:workspace");
-    const recordedId = record().backend_ids.workspace ?? "missing";
+    await interrupt("wrote:created:tab");
+    const recordedId = record().backend_ids.tab ?? "missing";
     const be = new FakeBackend(sb.env, { stateFile });
-    const decoy = be.addWorkspace(workspaceLabel(record()));
+    const decoy = be.addTab(tabLabel(record()), be.addWorkspace("decoy"));
     await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
-    expect(record().backend_ids.workspace).toBe(recordedId);
-    expect(be.effectCalls().filter((c) => c.op === "closeWorkspace").map((c) => c.args["workspace"])).toEqual([recordedId]);
-    expect(be.snapshotNow().workspaces.map((w) => w.id)).toEqual([decoy]);
+    expect(record().backend_ids.tab).toBe(recordedId);
+    expect(be.effectCalls().filter((c) => c.op === "closeTab").map((c) => c.args["tab"])).toEqual([recordedId]);
+    expect(be.snapshotNow().tabs.map((w) => w.id)).toEqual(["w1:t0", decoy]);
   });
 
   // Protects: a recovery that has only the label never takes another
@@ -214,18 +212,18 @@ describe("workspace identity across projects (Spec 2.5, revision 0.8)", () => {
     try {
       const be = new FakeBackend(sb.env, { stateFile });
       const first = await dispatch({ task: task(), humanApproved: false }, context(other, be));
-      const firstWorkspace = first.envelope.tasks[0]?.backend_ids.workspace ?? "missing";
+      const firstWorkspace = first.envelope.tasks[0]?.backend_ids.tab ?? "missing";
 
       const child = spawnChild(sb, stateFile, { name: "k", command: "dispatch", input: task(), killOn: "wrote:launching" });
       await child.proc.exited;
-      const mine = be.addWorkspace(workspaceLabel(record()));
+      const mine = be.addTab(tabLabel(record()));
 
       const x = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
       expect(x.code).toBe(0);
-      expect(record().backend_ids.workspace).toBe(mine);
-      const closed = be.effectCalls().filter((c) => c.op === "closeWorkspace").map((c) => c.args["workspace"]);
+      expect(record().backend_ids.tab).toBe(mine);
+      const closed = be.effectCalls().filter((c) => c.op === "closeTab").map((c) => c.args["tab"]);
       expect(closed).toEqual([mine]);
-      expect(be.snapshotNow().workspaces.map((w) => w.id)).toEqual([firstWorkspace]);
+      expect(be.snapshotNow().tabs.map((w) => w.id)).toEqual(["w1:t0", firstWorkspace]);
     } finally {
       other.cleanup();
     }

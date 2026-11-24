@@ -1,8 +1,10 @@
 import { existsSync, realpathSync } from "node:fs";
-import { BackendError, type Backend, type CheckOutcome, type LaunchCheck, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus } from "../core/backend.ts";
+import { BackendError, type Backend, type CheckOutcome, type LaunchCheck, type LaunchOutcome, type LaunchPlan, type Preparation, type Probe, type SendOutcome, type Snapshot, type SnapshotAgentStatus, type WorkspaceLookup } from "../core/backend.ts";
 import type { Env } from "../core/env.ts";
 import { git } from "../core/git.ts";
 import type { BackendIds, Created } from "../core/types.ts";
+import { resolveWorkspace } from "../core/workspace.ts";
+import { findTab } from "../core/tab.ts";
 import type { HerdrConfig } from "./config.ts";
 import { field, Herdr, ident, text } from "./run.ts";
 
@@ -90,7 +92,7 @@ export class HerdrBackend implements Backend {
 
   constructor(
     private env: Env,
-    config: HerdrConfig,
+    private config: HerdrConfig,
     private options: HerdrOptions = {},
   ) {
     this.herdr = new Herdr(env, config.session);
@@ -154,18 +156,12 @@ export class HerdrBackend implements Backend {
     // in a tab of its own workspace. The answer is checked whole before any
     // mapping: a missing or contradictory relation would let a present pane
     // look absent, and close would end a working agent.
-    // The label is how a recovery finds a workspace whose ID was never
-    // recorded (Spec 2.3, Emenda 1); a missing one is not an empty one.
+    // Workspace labels select the project; tab labels recover an unrecorded tab.
     const workspaceRows = list("workspaces").map((w) => {
       const id = ident(w, "workspace_id") ?? broken("workspace sem workspace_id");
       return { id, label: text(w, "label") ?? broken(`workspace ${id} sem label`) };
     });
     unique("workspace", workspaceRows.map((w) => w.id));
-    // A Demerzel task label (Spec 2.5: task ID, a space and the agent name)
-    // is how a recovery finds a workspace; the herdr does not keep labels
-    // unique, so two workspaces under one task label are refused rather
-    // than one chosen. Other owners' workspaces may share a label.
-    unique("label de tarefa", workspaceRows.map((w) => w.label).filter((l) => TASK_LABEL.test(l)));
     const workspaceIds = new Set(workspaceRows.map((w) => w.id));
     const tabRows = list("tabs").map((t) => {
       const id = ident(t, "tab_id") ?? broken("aba sem tab_id");
@@ -173,9 +169,11 @@ export class HerdrBackend implements Backend {
       if (!workspaceIds.has(workspace)) broken(`aba ${id} de um workspace ${workspace} fora do snapshot`);
       const number = field(t, "number");
       if (typeof number !== "number" || !Number.isFinite(number)) broken(`aba ${id} sem number`);
-      return { id, workspace, number: number as number };
+      const label = text(t, "label") ?? broken(`Tab ${id} has no label`);
+      return { id, workspace, label, number: number as number };
     });
     unique("aba", tabRows.map((t) => t.id));
+    unique("task tab label", tabRows.filter((t) => TASK_LABEL.test(t.label)).map((t) => JSON.stringify([t.workspace, t.label])));
     const tabById = new Map(tabRows.map((t) => [t.id, t]));
     const paneRows = list("panes").map((p) => {
       const id = ident(p, "pane_id") ?? broken("pane sem pane_id");
@@ -204,31 +202,23 @@ export class HerdrBackend implements Backend {
         const workspace = ident(a, "workspace_id");
         if ((tab !== null && tab !== listed.tab) || (workspace !== null && workspace !== listed.workspace)) broken(`agente ${name} em aba ou workspace diferente do pane ${pane}`);
       }
-      return [{ name, status, pane }];
+      return [{ name, status, pane, tab: listed?.tab ?? ident(a, "tab_id") }];
     });
     unique("agente", agents.map((a) => a.name));
-    // The herdr does not mark a root pane, and the core sees one pane per
-    // workspace, and asks only about Demerzel agents. A pane that holds one
-    // must never be the one left out, or a working agent would look lost.
-    // So the pane of a workspace is the pane of the Demerzel agent in it,
-    // whatever the label or the tab order; two Demerzel agents in different
-    // panes of one workspace cannot be shown and the snapshot is refused.
-    // Without one, the first pane holding a named agent, by tab number, and
-    // without agents, the first pane of the lowest tab.
-    const workspaces = workspaceRows.map(({ id, label }) => {
-      const own = tabRows.filter((t) => t.workspace === id).sort((x, y) => x.number - y.number);
-      const tabOrder = (p: { tab: string }): number => own.findIndex((t) => t.id === p.tab);
-      const ownPanes = paneRows.filter((p) => p.workspace === id);
-      const withAgent = ownPanes.filter((p) => agents.some((a) => a.pane === p.id)).sort((x, y) => tabOrder(x) - tabOrder(y));
+    const tabs = tabRows.map(({ id, workspace, label }) => {
+      const ownPanes = paneRows.filter((p) => p.tab === id);
+      const withAgent = ownPanes.filter((p) => agents.some((a) => a.pane === p.id));
       const ours = withAgent.filter((p) => agents.some((a) => DEMERZEL_AGENT.test(a.name) && a.pane === p.id));
-      if (ours.length > 1) broken(`workspace ${id} com agentes do Demerzel em ${ours.length} panes`);
-      const chosen = ours[0] ?? withAgent[0];
-      if (chosen !== undefined) return { id, label, tab: chosen.tab, pane: chosen.id };
-      const tab = own[0]?.id ?? null;
-      const pane = tab === null ? null : (ownPanes.find((p) => p.tab === tab)?.id ?? null);
-      return { id, label, tab, pane };
+      if (ours.length > 1) broken(`Tab ${id} has Demerzel agents in ${ours.length} panes`);
+      const pane = (ours[0] ?? withAgent[0] ?? ownPanes[0])?.id ?? null;
+      return { id, workspace, label, pane };
     });
-    return { agents, workspaces };
+    return { agents, workspaces: workspaceRows, tabs };
+  }
+
+  resolveWorkspace(mainCheckout: string, snapshot: Snapshot): WorkspaceLookup {
+    const labels = this.config.workspace_labels;
+    return resolveWorkspace(mainCheckout, snapshot, labels !== undefined && Object.hasOwn(labels, mainCheckout) ? labels[mainCheckout] : undefined);
   }
 
   prepare(plan: LaunchPlan): Preparation {
@@ -292,7 +282,7 @@ export class HerdrBackend implements Backend {
   }
 
   async launch(plan: LaunchPlan, preparation: Preparation, onCreated: (resource: Created) => void): Promise<LaunchOutcome> {
-    const ids: BackendIds = { workspace: null, tab: null, pane: null };
+    const ids: BackendIds = { workspace: plan.projectWorkspace.id, tab: null, pane: null };
     const kind = Object.hasOwn(KIND, plan.harness) ? KIND[plan.harness] : undefined;
     if (kind === undefined) return { kind: "failed", reason: `harness sem lançamento no backend herdr: ${plan.harness}`, ids };
 
@@ -301,53 +291,36 @@ export class HerdrBackend implements Backend {
     const report = (resource: Created): void => {
       if (reported.has(resource.kind)) return;
       reported.add(resource.kind);
-      if (resource.kind === "workspace") ids.workspace = resource.id;
       if (resource.kind === "tab") ids.tab = resource.id;
       if (resource.kind === "pane") ids.pane = resource.id;
       onCreated(resource);
     };
-    // The IDs of a creation answer must agree: the workspace, the tab's
-    // workspace and the root pane's workspace, and the tab and the root
-    // pane's tab. A contradictory answer records nothing, since a wrong ID
-    // could later close another task's workspace; the failure path finds
-    // the real ones by label. Otherwise each resource the answer confirms is
-    // listed on its own, the workspace also when only the relation of the
-    // tab or the pane names it. The launch goes on only when the workspace,
-    // the tab and the root pane objects all came.
+    // A partial answer confirms nothing. Reconciliation is scoped to the
+    // immutable recorded workspace and checks the candidate's agents.
     const reportSession = (result: Record<string, unknown>): { pane: string | null; reason: string } => {
-      const agree = (values: Array<string | null>): string | null | false => {
-        const present = values.filter((v): v is string => v !== null);
-        return present.some((v) => v !== present[0]) ? false : (present[0] ?? null);
-      };
-      const workspace = agree([ident(result, "workspace", "workspace_id"), ident(result, "tab", "workspace_id"), ident(result, "root_pane", "workspace_id")]);
-      const tab = agree([ident(result, "tab", "tab_id"), ident(result, "root_pane", "tab_id")]);
+      const tab = ident(result, "tab", "tab_id");
       const pane = ident(result, "root_pane", "pane_id");
-      if (workspace === false || tab === false) return { pane: null, reason: "confirmação com IDs de workspace ou aba que se contradizem" };
-      if (workspace !== null) report({ kind: "workspace", id: workspace });
-      if (workspace !== null && tab !== null) report({ kind: "tab", id: tab });
-      if (workspace !== null && pane !== null) report({ kind: "pane", id: pane });
-      const whole = ident(result, "workspace", "workspace_id") !== null && ident(result, "tab", "tab_id") !== null && pane !== null;
-      return whole ? { pane, reason: "" } : { pane: null, reason: "confirmação sem workspace, aba ou root_pane" };
+      const whole = tab !== null && pane !== null
+        && ident(result, "root_pane", "tab_id") === tab
+        && ident(result, "tab", "workspace_id") === plan.projectWorkspace.id
+        && ident(result, "root_pane", "workspace_id") === plan.projectWorkspace.id;
+      if (!whole) return { pane: null, reason: "incomplete or contradictory tab and root_pane confirmation" };
+      report({ kind: "tab", id: tab });
+      report({ kind: "pane", id: pane });
+      return { pane, reason: "" };
     };
-    // When a confirmation is lost or broken, the real state decides what the
-    // launch created: the workspace by its label, unique across projects, and
-    // the agent by its name. The worktree is the core's. Nothing is created
-    // here.
     const failed = async (reason: string): Promise<LaunchOutcome> => {
       let snap: Snapshot | null = null;
-      try {
-        snap = await this.snapshot();
-      } catch {
-        snap = null;
-      }
+      try { snap = await this.snapshot(); } catch { snap = null; }
       if (snap !== null) {
-        const w = snap.workspaces.find((x) => x.label === plan.label);
-        if (w !== undefined) {
-          report({ kind: "workspace", id: w.id });
-          if (w.tab !== null) report({ kind: "tab", id: w.tab });
-          if (w.pane !== null) report({ kind: "pane", id: w.pane });
+        const candidate = findTab({ id: plan.taskId, agent_name: plan.agentName, backend_ids: ids, project_workspace: plan.projectWorkspace }, snap);
+        if (candidate.notOwned !== null) reason += `; tab ${candidate.notOwned.tab} is not owned: agents ${candidate.notOwned.agents.join(", ")}`;
+        const tab = candidate.tab;
+        if (tab !== undefined) {
+          report({ kind: "tab", id: tab.id });
+          if (tab.pane !== null) report({ kind: "pane", id: tab.pane });
         }
-        if (snap.agents.some((a) => a.name === plan.agentName)) report({ kind: "agent", name: plan.agentName });
+        if (candidate.notOwned === null && snap.agents.some((a) => a.name === plan.agentName)) report({ kind: "agent", name: plan.agentName });
       }
       return { kind: "failed", reason, ids };
     };
@@ -356,10 +329,10 @@ export class HerdrBackend implements Backend {
     // Codex: the session opens in the worktree the core created and
     // prepared (Spec 2.5, revision 0.15).
     if (plan.harness === "codex") {
-      const created = this.create(["workspace", "create", "--cwd", plan.worktreePath, "--label", plan.label, "--no-focus"]);
+      const created = this.create(["tab", "create", "--workspace", plan.projectWorkspace.id, "--cwd", plan.worktreePath, "--label", plan.label, "--no-focus"]);
       if (!created.ok) return failed(created.reason);
       const session = reportSession(created.result);
-      if (session.pane === null) return failed(`herdr workspace create: ${session.reason}`);
+      if (session.pane === null) return failed(`herdr tab create: ${session.reason}`);
       const pane = session.pane;
       const started = await this.startAgent(plan.agentName, ["agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", ...this.modelArgs(plan, preparation)]);
       if (started.kind === "failed") return failed(started.reason);
@@ -374,10 +347,10 @@ export class HerdrBackend implements Backend {
     const worktreeName = preparation.data["worktreeName"];
     if (typeof settings !== "string" || typeof worktreeName !== "string") return { kind: "failed", reason: "preparo do Claude Code sem settings ou nome de worktree", ids };
     if (/[\n\r]/.test(plan.worktreePath) || /[\n\r]/.test(plan.mainCheckout)) return { kind: "failed", reason: "path com quebra de linha não cabe no protocolo do hook WorktreeCreate", ids };
-    const created = this.create(["workspace", "create", "--cwd", plan.mainCheckout, "--label", plan.label, "--no-focus"]);
+    const created = this.create(["tab", "create", "--workspace", plan.projectWorkspace.id, "--cwd", plan.mainCheckout, "--label", plan.label, "--no-focus"]);
     if (!created.ok) return failed(created.reason);
     const session = reportSession(created.result);
-    if (session.pane === null) return failed(`herdr workspace create: ${session.reason}`);
+    if (session.pane === null) return failed(`herdr tab create: ${session.reason}`);
     const pane = session.pane;
     const started = await this.startAgent(plan.agentName, [
       "agent", "start", plan.agentName, "--kind", kind, "--pane", pane, "--timeout", startTimeout, "--", "--worktree", worktreeName, "--settings", settings, ...this.modelArgs(plan, preparation),
@@ -485,13 +458,13 @@ export class HerdrBackend implements Backend {
   }
 
   // herdr 0.9.0 confirms a close with result.type "ok". Any other success is
-  // not a close; a workspace that is already gone is.
-  async closeWorkspace(workspaceId: string): Promise<void> {
-    const reply = this.herdr.run(["workspace", "close", workspaceId]);
+  // not a close; a tab that is already gone is.
+  async closeTab(tabId: string): Promise<void> {
+    const reply = this.herdr.run(["tab", "close", tabId]);
     if (reply.ok) {
       if (text(reply.result, "type") === "ok") return;
-      throw new BackendError("herdr workspace close", `confirmação sem type ok (${text(reply.result, "type") ?? "ausente"})`);
+      throw new BackendError("herdr tab close", `Close confirmation has no type ok (${text(reply.result, "type") ?? "absent"})`);
     }
-    if (reply.code !== "workspace_not_found") throw new BackendError("herdr workspace close", `${reply.code}: ${reply.message}`);
+    if (reply.code !== "tab_not_found") throw new BackendError("herdr tab close", `${reply.code}: ${reply.message}`);
   }
 }

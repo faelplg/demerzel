@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BackendError, close, dispatch } from "../../src/core/index.ts";
-import { workspaceLabel } from "../../src/core/commands/common.ts";
+import { tabLabel } from "../../src/core/tab.ts";
 import { FakeBackend } from "../../src/core/fake-backend.ts";
 import { resolveProject } from "../../src/core/project.ts";
 import type { TaskRecord } from "../../src/core/types.ts";
@@ -29,14 +29,14 @@ function record(id = "TC-0099.1"): TaskRecord {
 async function launchWithoutWorkspaceId(be: FakeBackend): Promise<void> {
   const d = await dispatch({ task: task(), humanApproved: false }, context(sb, be));
   expect(d.envelope.tasks[0]?.lifecycle).toBe("launch-failed");
-  expect(record().backend_ids.workspace).toBeNull();
+  expect(record().backend_ids.tab).toBeNull();
 }
 
 class CloseFails extends FakeBackend {
   failures = 1;
-  override async closeWorkspace(workspaceId: string): Promise<void> {
-    if (this.failures-- > 0) throw new BackendError("herdr workspace close", "falha injetada");
-    return super.closeWorkspace(workspaceId);
+  override async closeTab(workspaceId: string): Promise<void> {
+    if (this.failures-- > 0) throw new BackendError("herdr tab close", "falha injetada");
+    return super.closeTab(workspaceId);
   }
 }
 
@@ -48,18 +48,18 @@ describe("close finds a workspace whose ID was never recorded", () => {
   test("the workspace is found by label, closed and its ID recorded", async () => {
     const be = new FakeBackend(sb.env, { script: { failAfter: "worktree" } });
     await launchWithoutWorkspaceId(be);
-    const lost = be.addWorkspace(workspaceLabel(record()));
+    const lost = be.addTab(tabLabel(record()));
 
     const c = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
     expect(c.code).toBe(0);
-    expect(be.effectCalls().filter((x) => x.op === "closeWorkspace").map((x) => x.args["workspace"])).toEqual([lost]);
-    expect(be.snapshotNow().workspaces).toEqual([]);
+    expect(be.effectCalls().filter((x) => x.op === "closeTab").map((x) => x.args["tab"])).toEqual([lost]);
+    expect(be.snapshotNow().tabs.map((t) => t.id)).toEqual(["w1:t0"]);
     const r = record();
     expect(r.lifecycle).toBe("closed");
-    expect(r.backend_ids.workspace).toBe(lost);
+    expect(r.backend_ids.tab).toBe(lost);
     expect(r.history.slice(-2).map((h) => [h.event, h.detail])).toEqual([
-      ["workspace-found", { workspace: lost, by: "label" }],
-      ["closed", { workspace_closed: lost }],
+      ["tab-found", { tab: lost, by: "label" }],
+      ["closed", { tab_closed: lost, last_tab_in_workspace: false }],
     ]);
   });
 
@@ -68,13 +68,13 @@ describe("close finds a workspace whose ID was never recorded", () => {
   test("a workspace with another label is left open", async () => {
     const be = new FakeBackend(sb.env, { script: { failAfter: "worktree" } });
     await launchWithoutWorkspaceId(be);
-    const other = be.addWorkspace("TC-0099.1 dz-ffffffffffffffff");
+    const other = be.addTab("TC-0099.1 dz-ffffffffffffffff");
 
     const c = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
     expect(c.code).toBe(0);
-    expect(be.effectCalls().filter((x) => x.op === "closeWorkspace")).toEqual([]);
-    expect(be.snapshotNow().workspaces.map((w) => w.id)).toEqual([other]);
-    expect(record().backend_ids.workspace).toBeNull();
+    expect(be.effectCalls().filter((x) => x.op === "closeTab")).toEqual([]);
+    expect(be.snapshotNow().tabs.map((w) => w.id)).toEqual(["w1:t0", other]);
+    expect(record().backend_ids.tab).toBeNull();
   });
 
   // Protects: the ID found is kept even when the close fails, so a second
@@ -83,18 +83,18 @@ describe("close finds a workspace whose ID was never recorded", () => {
   test("a failed close keeps the found ID and the next close finishes", async () => {
     const be = new CloseFails(sb.env, { script: { failAfter: "worktree" } });
     await launchWithoutWorkspaceId(be);
-    const lost = be.addWorkspace(workspaceLabel(record()));
+    const lost = be.addTab(tabLabel(record()));
 
     const first = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
     expect(first.code).toBe(1);
     expect(record().lifecycle).toBe("launch-failed");
-    expect(record().backend_ids.workspace).toBe(lost);
-    expect(record().history.slice(-2).map((h) => h.event)).toEqual(["workspace-found", "close-failed"]);
-    expect(first.envelope.tasks[0]?.backend_error).toBe("herdr workspace close: falha injetada");
+    expect(record().backend_ids.tab).toBe(lost);
+    expect(record().history.slice(-2).map((h) => h.event)).toEqual(["tab-found", "close-failed"]);
+    expect(first.envelope.tasks[0]?.backend_error).toBe("herdr tab close: falha injetada");
 
     const second = await close({ id: "TC-0099.1", discardWorktree: false }, context(sb, be));
     expect(second.code).toBe(0);
     expect(record().lifecycle).toBe("closed");
-    expect(be.snapshotNow().workspaces).toEqual([]);
+    expect(be.snapshotNow().tabs.map((t) => t.id)).toEqual(["w1:t0"]);
   });
 });

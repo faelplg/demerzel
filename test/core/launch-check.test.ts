@@ -88,7 +88,7 @@ for (const [origin, start] of Object.entries(origins)) {
       expect(after.lifecycle).toBe("launch-failed");
       expect(after.request_sent).toBe(false);
       expect(after.send_started_at).toBeNull();
-      expect(after.created.map((c) => c.kind).sort()).toEqual(["agent", "pane", "tab", "workspace", "worktree"]);
+      expect(after.created.map((c) => c.kind).sort()).toEqual(["agent", "pane", "tab", "worktree"]);
       const last = after.history.at(-1);
       expect(last?.event).toBe("launch-failed");
       expect(String(last?.detail?.["reason"])).toContain("pós-condição do lançamento não confere");
