@@ -1,0 +1,308 @@
+{
+  "run": "2611251729",
+  "session": "dz-smoke-db2c18",
+  "repo": "/tmp/dz-smoke-tc0005",
+  "paths": {
+    "state": "/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3",
+    "config": "/tmp/dz-nDnDEx",
+    "sessionDir": "/tmp/dz-nDnDEx/herdr/sessions/dz-smoke-db2c18",
+    "report": "/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/smoke-report.json"
+  },
+  "versions": {
+    "herdr": "herdr 0.9.5",
+    "claude": "2.1.311 (Claude Code)",
+    "codex": "codex-cli 0.169.0"
+  },
+  "launches": [
+    {
+      "id": "SMK-2611251729-x1",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5805,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-x2",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5284,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-x3",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5297,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-x4",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5361,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-x5",
+      "harness": "codex",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5318,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-c1",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5311,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-c2",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5317,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-c3",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5328,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-c4",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5398,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    },
+    {
+      "id": "SMK-2611251729-c5",
+      "harness": "claude-code",
+      "code": 0,
+      "lifecycle": "launched",
+      "request_sent": true,
+      "agent": "working",
+      "dispatch_ms": 5338,
+      "refusal": null,
+      "outcome": "entregue",
+      "intervention_before_delivery": false,
+      "backend_error": null,
+      "owner_observation": null
+    }
+  ],
+  "concurrency": [
+    {
+      "ids": [
+        "SMK-2611251729-xlong",
+        "SMK-2611251729-clong"
+      ],
+      "shared_workspace": true,
+      "both_working": true,
+      "close_first": "task-working"
+    }
+  ],
+  "returns": [
+    {
+      "id": "SMK-2611251729-x1",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-x2",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-x3",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-x4",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-x5",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-c1",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-c2",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-c3",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-c4",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    },
+    {
+      "id": "SMK-2611251729-c5",
+      "agent": "idle",
+      "report": "present",
+      "collect_code": 0,
+      "content": "ok\n"
+    }
+  ],
+  "prepared": [
+    {
+      "id": "SMK-2611251729-xprep",
+      "harness": "codex",
+      "preparation": "succeeded",
+      "prepared_before_session": true,
+      "expected": "prepared in /private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-xprep",
+      "content": "prepared in /private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-xprep\n",
+      "read_prepared_file": true
+    },
+    {
+      "id": "SMK-2611251729-cprep",
+      "harness": "claude-code",
+      "preparation": "succeeded",
+      "prepared_before_session": true,
+      "expected": "prepared in /private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-cprep",
+      "content": "prepared in /private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-cprep\n",
+      "read_prepared_file": true
+    }
+  ],
+  "postcondition": {
+    "id": "SMK-2611251729-cpost",
+    "code": 1,
+    "lifecycle": "launch-failed",
+    "reason": {
+      "reason": "pós-condição do lançamento no Claude Code: cwd do agente /private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/elsewhere não é o worktree /var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-cpost"
+    }
+  },
+  "leftovers": {
+    "worktrees": [
+      "/private/tmp/dz-smoke-tc0005",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-c1",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-c2",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-c3",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-c4",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-c5",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-clong",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-cpost",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-cprep",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-x1",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-x2",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-x3",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-x4",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-x5",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-xlong",
+      "/private/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3/demerzel/projects/dz-smoke-tc0005-479117d6b970/worktrees/SMK-2611251729-xprep"
+    ],
+    "branches": [
+      "smoke/SMK-2611251729-c1",
+      "smoke/SMK-2611251729-c2",
+      "smoke/SMK-2611251729-c3",
+      "smoke/SMK-2611251729-c4",
+      "smoke/SMK-2611251729-c5",
+      "smoke/SMK-2611251729-clong",
+      "smoke/SMK-2611251729-cpost",
+      "smoke/SMK-2611251729-cprep",
+      "smoke/SMK-2611251729-x1",
+      "smoke/SMK-2611251729-x2",
+      "smoke/SMK-2611251729-x3",
+      "smoke/SMK-2611251729-x4",
+      "smoke/SMK-2611251729-x5",
+      "smoke/SMK-2611251729-xlong",
+      "smoke/SMK-2611251729-xprep"
+    ],
+    "registry": "/var/folders/x7/fywf125j0c962c05z1q8jh0c0000gn/T/dz-smoke-state-H0JKy3"
+  },
+  "project_workspace": "w1"
+}

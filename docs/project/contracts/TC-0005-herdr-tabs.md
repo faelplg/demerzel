@@ -14,10 +14,12 @@ section 18, decision 9)
 ([critique and review record](../verification/2026-11-23-tc-0005-grill.md))\
 **Project:** `demerzel`\
 **Iteration:** Plan 0.12, increment 9\
-**Status:** `READY`\
-**Lifecycle:** proposed; the cross-vendor critique of section 18, decision
-1, and the PR #66 review of decision 9 are applied; the orchestrator
-activates it in `ACTIVE.md` after the owner approves revision 3\
+**Status:** `DONE`\
+**Lifecycle:** `done` on 2026-11-25, with the Build in
+[faelplg/demerzel#67](https://github.com/faelplg/demerzel/pull/67) and the
+evidence in `docs/project/verification/2026-11-24-tc-0005-herdr-tabs.md`;
+the confirmation verdict of the independent critique is recorded only in
+the PR #67 description\
 **Owner:** Fael (human); contract authored by an agent (`claude-code`,
 model `claude-opus-5-5`, effort `high`); Build by an agent in the
 `radiant-dev` role; orchestrator responsible for the independent critique\
@@ -793,51 +795,51 @@ session `lab` and the chosen harness authenticated.
 
 The task can only be declared `DONE` when:
 
-- [ ] Spec 0.19 and Plan 0.13 carry every item of output 1, written before
+- [x] Spec 0.19 and Plan 0.13 carry every item of output 1, written before
   the first code commit of the Build;
-- [ ] each requirement C1 to C3, R1 to R6, T1 to T5, S1 to S5, F1 to F4,
+- [x] each requirement C1 to C3, R1 to R6, T1 to T5, S1 to S5, F1 to F4,
   V1 to V3, X1 to X6, E1, B1 and Z1 to Z9 has a test or evidence, linked in
   the traceability table;
-- [ ] a `dispatch` with no workspace labeled with the project label, and one
+- [x] a `dispatch` with no workspace labeled with the project label, and one
   with two, each exit `2` with `project-workspace-missing` and
   `project-workspace-ambiguous`, with no task file, branch, worktree, tab or
   backend effect call;
-- [ ] in the fake herdr and in the real herdr scenario, both harnesses open
+- [x] in the fake herdr and in the real herdr scenario, both harnesses open
   a tab labeled `<task id> <agent name>` in the project workspace, Codex
   with `--cwd` the worktree and Claude Code with `--cwd` the main checkout;
-- [ ] two Demerzel units with live agents in one workspace are observed,
+- [x] two Demerzel units with live agents in one workspace are observed,
   resumed, waited on and closed independently in the fake herdr, and
   `snapshot()` never refuses that layout;
-- [ ] `close` runs `herdr tab close` on the unit's tab only, never
+- [x] `close` runs `herdr tab close` on the unit's tab only, never
   `workspace close`, and the project workspace and every other tab remain,
   in the fake herdr and in the scenario;
-- [ ] (a) a tab with the task label in a workspace other than the task's
+- [x] (a) a tab with the task label in a workspace other than the task's
   recorded `project_workspace` is never recorded by recovery or by the T4
   failure path, never closed by `close`, and does not make `snapshot()`
   fail as a duplicate, in the fake backend and in the fake herdr;
-- [ ] (b) a tab in the recorded project workspace with the task label that
+- [x] (b) a tab in the recorded project workspace with the task label that
   hosts a foreign agent (another Demerzel unit's agent, or any other named
   agent, alone or beside the task's own) is never recorded or closed:
   recovery leaves it with the `tab_not_owned` detail, the T4 failure path
   records nothing, and `close` refuses with `tab-not-owned`, exit `2`, with
   no task file written, no `tab-found` entry, no published recovery and no
   backend effect call;
-- [ ] (c) a tab in the recorded project workspace with the task label and
+- [x] (c) a tab in the recorded project workspace with the task label and
   no agent, left by a dispatch that stopped before `agent start` with no
   tab or pane ID recorded, is recorded by recovery and closed by `close`
   with `tab-found`;
-- [ ] `grep` finds no `workspace create`, `workspace close` or
+- [x] `grep` finds no `workspace create`, `workspace close` or
   `worktree create` herdr call in `src/`;
-- [ ] `bun run check` passes in a clean clone, and `bun run test:core` still
+- [x] `bun run check` passes in a clean clone, and `bun run test:core` still
   runs without `python3`;
-- [ ] the CI `check` passed on both systems of the matrix;
-- [ ] `bun run scenario:herdr` passed every check, with
+- [x] the CI `check` passed on both systems of the matrix;
+- [x] `bun run scenario:herdr` passed every check, with
   `ownerSessionsTouched: false`, and the version of herdr it ran on is in the
   report;
-- [ ] the smoke passed for both harnesses as two concurrent tabs of one
+- [x] the smoke passed for both harnesses as two concurrent tabs of one
   workspace;
-- [ ] the mutations of section 11 were shown failing;
-- [ ] against the entry commit, the tests that existed there in
+- [x] the mutations of section 11 were shown failing;
+- [x] against the entry commit, the tests that existed there in
   `test/core/`, `test/herdr/` (other than `scenario.ts` and `smoke.ts`),
   `test/cli.test.ts` and `test/radiant/` changed only by the exception of
   output 8, and the read-only paths of section 4 did not change;
@@ -845,9 +847,9 @@ The task can only be declared `DONE` when:
   other than the Build's, and each objection was accepted with a fix or
   declined with a reason;
 - [ ] all applicable checks in section 11 pass;
-- [ ] there was no change outside the Allowed scope;
-- [ ] relevant limitations are recorded;
-- [ ] the final evidence was read, not just presumed from the exit code.
+- [x] there was no change outside the Allowed scope;
+- [x] relevant limitations are recorded;
+- [x] the final evidence was read, not just presumed from the exit code.
 
 ## 13. HOLD conditions
 
