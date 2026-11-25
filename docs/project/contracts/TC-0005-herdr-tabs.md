@@ -16,10 +16,10 @@ section 18, decision 9)
 **Iteration:** Plan 0.12, increment 9\
 **Status:** `DONE`\
 **Lifecycle:** `done` on 2026-11-25, with the Build in
-[faelplg/demerzel#67](https://github.com/faelplg/demerzel/pull/67) and the
-evidence in `docs/project/verification/2026-11-24-tc-0005-herdr-tabs.md`;
-the confirmation verdict of the independent critique is recorded only in
-the PR #67 description\
+[faelplg/demerzel#67](https://github.com/faelplg/demerzel/pull/67), the
+evidence in `docs/project/verification/2026-11-24-tc-0005-herdr-tabs.md`,
+and the confirmation verdict in
+`docs/project/verification/2026-11-25-tc-0005-critique-confirm.md`\
 **Owner:** Fael (human); contract authored by an agent (`claude-code`,
 model `claude-opus-5-5`, effort `high`); Build by an agent in the
 `radiant-dev` role; orchestrator responsible for the independent critique\
@@ -843,10 +843,10 @@ The task can only be declared `DONE` when:
   `test/core/`, `test/herdr/` (other than `scenario.ts` and `smoke.ts`),
   `test/cli.test.ts` and `test/radiant/` changed only by the exception of
   output 8, and the read-only paths of section 4 did not change;
-- [ ] the independent critique was done by the orchestrator in a vendor
+- [x] the independent critique was done by the orchestrator in a vendor
   other than the Build's, and each objection was accepted with a fix or
   declined with a reason;
-- [ ] all applicable checks in section 11 pass;
+- [x] all applicable checks in section 11 pass;
 - [x] there was no change outside the Allowed scope;
 - [x] relevant limitations are recorded;
 - [x] the final evidence was read, not just presumed from the exit code.
